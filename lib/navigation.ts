@@ -1,0 +1,34 @@
+import {
+  LayoutDashboard,
+  Briefcase,
+  Users,
+  Camera,
+  Scissors,
+  Wallet,
+  BarChart3,
+  Settings,
+} from 'lucide-react';
+import type { UserRole } from '@/lib/types';
+
+export interface NavItem {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  roles: UserRole[];
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['manager', 'admin', 'sales', 'editor'] },
+  { label: 'Sales', href: '/sales', icon: Briefcase, roles: ['manager', 'admin', 'sales'] },
+  { label: 'Manager', href: '/manager', icon: LayoutDashboard, roles: ['manager', 'admin'] },
+  { label: 'Shoot', href: '/shoot', icon: Camera, roles: ['manager', 'admin', 'sales'] },
+  { label: 'Editor', href: '/editor', icon: Scissors, roles: ['manager', 'admin', 'editor'] },
+  { label: 'Clients', href: '/clients', icon: Users, roles: ['manager', 'admin', 'sales'] },
+  { label: 'Finance', href: '/finance', icon: Wallet, roles: ['manager', 'admin'] },
+  { label: 'Analytics', href: '/analytics', icon: BarChart3, roles: ['manager', 'admin'] },
+  { label: 'Settings', href: '/settings', icon: Settings, roles: ['manager', 'admin', 'sales', 'editor'] },
+];
+
+export function getNavForRole(role: UserRole): NavItem[] {
+  return NAV_ITEMS.filter((item) => item.roles.includes(role));
+}
