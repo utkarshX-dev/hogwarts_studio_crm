@@ -14,6 +14,7 @@ const ROLES: { value: UserRole; label: string; desc: string }[] = [
   { value: 'manager', label: 'Manager', desc: 'Full operational control' },
   { value: 'sales', label: 'Sales Rep', desc: 'Leads, proposals, clients' },
   { value: 'editor', label: 'Editor', desc: 'Editing queue & drafts' },
+  { value: 'shoot', label: 'Shoot Team', desc: 'Shoot schedules & tasks' },
 ];
 
 export default function LoginPage() {
@@ -25,7 +26,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const ok = await login(username, role);
-    if (ok) router.replace(role === 'editor' ? '/editor' : role === 'sales' ? '/sales' : '/manager');
+    if (ok) router.replace(role === 'editor' ? '/editor' : role === 'sales' ? '/sales' : role === 'shoot' ? '/shoot' : '/manager');
   };
 
   return (
@@ -50,7 +51,7 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label>Role</Label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {ROLES.map((r) => (
                     <button
                       key={r.value}
@@ -75,7 +76,7 @@ export default function LoginPage() {
                   id="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="manager / sales / editor"
+                  placeholder="manager / sales / editor / shoot"
                   autoComplete="off"
                   required
                 />

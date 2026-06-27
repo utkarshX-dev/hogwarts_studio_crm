@@ -1,4 +1,4 @@
-export type UserRole = 'manager' | 'sales' | 'editor' | 'admin';
+export type UserRole = 'manager' | 'sales' | 'editor' | 'admin' | 'shoot';
 
 export interface User {
   id: string;
@@ -29,8 +29,8 @@ export const MOCK_USERS: Record<UserRole, Omit<User, 'role'>> = {
   },
   sales: {
     id: 'u002',
-    name: 'Shubham Bhandari',
-    initials: 'SB',
+    name: 'Shubham',
+    initials: 'S',
     email: 'shubham@howgartsmedia.com',
     username: 'sales',
     redirectTo: '/sales',
@@ -50,6 +50,14 @@ export const MOCK_USERS: Record<UserRole, Omit<User, 'role'>> = {
     email: 'admin@howgartsmedia.com',
     username: 'admin',
     redirectTo: '/manager',
+  },
+  shoot: {
+    id: 'u005',
+    name: 'Shoot Team',
+    initials: 'ST',
+    email: 'shoot@howgartsmedia.com',
+    username: 'shoot',
+    redirectTo: '/shoot',
   },
 };
 

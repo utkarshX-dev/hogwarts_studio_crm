@@ -24,40 +24,40 @@ const daysAhead = (n: number) => new Date(Date.now() + n * 86400000).toISOString
 export const PROJECTS: Project[] = [
   {
     id: 'p1', serialNo: 1, client: CLIENTS[0], service: 'podcast', status: 'editing', priority: 'high',
-    budget: 450000, paidAmount: 225000, salesMember: 'Shubham Bhandari', editor: EDITORS[0],
+    budget: 450000, paidAmount: 225000, salesMember: 'Shubham', editor: EDITORS[0],
     requirements: '8-episode podcast series, multi-cam setup, professional audio mixing',
     shootDate: daysAgo(5), revisions: 0, createdAt: daysAgo(20), updatedAt: daysAgo(2),
     driveLink: 'https://drive.google.com/drive/folders/p1footage',
     timeline: [
       { id: 't1', event: 'Editor Assigned', description: 'Siddharth Roy assigned to project', timestamp: daysAgo(3), actor: 'Albus Dumbledore' },
       { id: 't2', event: 'Footage Received', description: 'Raw footage uploaded to Drive', timestamp: daysAgo(4), actor: 'Shoot Team' },
-      { id: 't3', event: 'Payment Received', description: 'Advance of ₹2,25,000 received', timestamp: daysAgo(12), actor: 'Shubham Bhandari' },
+      { id: 't3', event: 'Payment Received', description: 'Advance of ₹2,25,000 received', timestamp: daysAgo(12), actor: 'Shubham' },
     ],
   },
   {
     id: 'p2', serialNo: 2, client: CLIENTS[1], service: 'brand_film', status: 'proposal_sent', priority: 'medium',
-    budget: 380000, paidAmount: 0, salesMember: 'Shubham Bhandari',
+    budget: 380000, paidAmount: 0, salesMember: 'Shubham',
     requirements: '3-minute brand film, studio + outdoor locations, 2-day shoot',
     revisions: 0, createdAt: daysAgo(8), updatedAt: daysAgo(1),
     timeline: [
-      { id: 't4', event: 'Proposal Sent', description: 'Proposal shared with client via WhatsApp', timestamp: daysAgo(1), actor: 'Shubham Bhandari' },
-      { id: 't5', event: 'Lead Created', description: 'Lead captured from WhatsApp Business', timestamp: daysAgo(8), actor: 'Shubham Bhandari' },
+      { id: 't4', event: 'Proposal Sent', description: 'Proposal shared with client via WhatsApp', timestamp: daysAgo(1), actor: 'Shubham' },
+      { id: 't5', event: 'Lead Created', description: 'Lead captured from WhatsApp Business', timestamp: daysAgo(8), actor: 'Shubham' },
     ],
   },
   {
     id: 'p3', serialNo: 3, client: CLIENTS[2], service: 'product_video', status: 'shoot_scheduled', priority: 'urgent',
-    budget: 350000, paidAmount: 175000, salesMember: 'Shubham Bhandari',
+    budget: 350000, paidAmount: 175000, salesMember: 'Shubham',
     shoot: { id: 's1', projectId: 'p3', date: daysAhead(2), location: 'Jaipur Studio', crew: ['Ravi (Cam)', 'Amit (Light)', 'Sara (Sound)'], equipment: ['Sony FX6', 'DJI Ronin', 'Aputure 600D'], status: 'scheduled' },
     requirements: 'Product showcase video, 5 SKUs, white cyc backdrop',
     shootDate: daysAhead(2), revisions: 0, createdAt: daysAgo(15), updatedAt: daysAgo(3),
     timeline: [
       { id: 't6', event: 'Shoot Scheduled', description: 'Shoot scheduled for ' + new Date(daysAhead(2)).toLocaleDateString('en-IN'), timestamp: daysAgo(3), actor: 'Albus Dumbledore' },
-      { id: 't7', event: 'Payment Received', description: 'Advance of ₹1,75,000 received', timestamp: daysAgo(6), actor: 'Shubham Bhandari' },
+      { id: 't7', event: 'Payment Received', description: 'Advance of ₹1,75,000 received', timestamp: daysAgo(6), actor: 'Shubham' },
     ],
   },
   {
     id: 'p4', serialNo: 4, client: CLIENTS[3], service: 'reel', status: 'draft_sent', priority: 'medium',
-    budget: 120000, paidAmount: 60000, salesMember: 'Shubham Bhandari', editor: EDITORS[1],
+    budget: 120000, paidAmount: 60000, salesMember: 'Shubham', editor: EDITORS[1],
     requirements: '5 Instagram reels, beauty product focus, trending audio',
     revisions: 0, createdAt: daysAgo(18), updatedAt: daysAgo(1),
     draftLink: 'https://drive.google.com/file/d/p4draft',
@@ -68,15 +68,15 @@ export const PROJECTS: Project[] = [
   },
   {
     id: 'p5', serialNo: 5, client: CLIENTS[4], service: 'social_media', status: 'new_lead', priority: 'low',
-    budget: 0, paidAmount: 0, salesMember: 'Shubham Bhandari',
+    budget: 0, paidAmount: 0, salesMember: 'Shubham',
     revisions: 0, createdAt: daysAgo(2), updatedAt: daysAgo(2),
     timeline: [
-      { id: 't10', event: 'Lead Created', description: 'New lead from WhatsApp Business', timestamp: daysAgo(2), actor: 'Shubham Bhandari' },
+      { id: 't10', event: 'Lead Created', description: 'New lead from WhatsApp Business', timestamp: daysAgo(2), actor: 'Shubham' },
     ],
   },
   {
     id: 'p6', serialNo: 6, client: CLIENTS[5], service: 'event_coverage', status: 'footage_received', priority: 'high',
-    budget: 280000, paidAmount: 140000, salesMember: 'Shubham Bhandari',
+    budget: 280000, paidAmount: 140000, salesMember: 'Shubham',
     requirements: 'Wellness expo coverage, 1-day event, 3 cameras',
     revisions: 0, createdAt: daysAgo(25), updatedAt: daysAgo(4),
     driveLink: 'https://drive.google.com/drive/folders/p6footage',
@@ -87,18 +87,18 @@ export const PROJECTS: Project[] = [
   },
   {
     id: 'p7', serialNo: 7, client: CLIENTS[0], service: 'brand_film', status: 'delivered', priority: 'medium',
-    budget: 520000, paidAmount: 520000, salesMember: 'Shubham Bhandari', editor: EDITORS[3],
+    budget: 520000, paidAmount: 520000, salesMember: 'Shubham', editor: EDITORS[3],
     requirements: 'Corporate brand film, office + factory locations',
     revisions: 1, createdAt: daysAgo(60), updatedAt: daysAgo(7),
     draftLink: 'https://drive.google.com/file/d/p7final',
     timeline: [
       { id: 't13', event: 'Project Delivered', description: 'Final files delivered to client', timestamp: daysAgo(7), actor: 'Albus Dumbledore' },
-      { id: 't14', event: 'Draft Approved', description: 'Client approved final draft', timestamp: daysAgo(10), actor: 'Shubham Bhandari' },
+      { id: 't14', event: 'Draft Approved', description: 'Client approved final draft', timestamp: daysAgo(10), actor: 'Shubham' },
     ],
   },
   {
     id: 'p8', serialNo: 8, client: CLIENTS[3], service: 'product_video', status: 'in_revision', priority: 'high',
-    budget: 180000, paidAmount: 90000, salesMember: 'Shubham Bhandari', editor: EDITORS[2],
+    budget: 180000, paidAmount: 90000, salesMember: 'Shubham', editor: EDITORS[2],
     requirements: 'Cosmetic product launch video, 90 seconds',
     revisions: 1, createdAt: daysAgo(22), updatedAt: daysAgo(1),
     draftLink: 'https://drive.google.com/file/d/p8draft',
@@ -126,9 +126,9 @@ export const ACTIVITY: ActivityLog[] = [
   { id: 'a2', type: 'draft', message: 'Draft submitted for Bloom Cosmetics reel package', actor: 'Priya Sharma', timestamp: daysAgo(1), projectId: 'p4' },
   { id: 'a3', type: 'footage', message: 'Footage uploaded for Reddy Wellness event', actor: 'Shoot Team', timestamp: daysAgo(4), projectId: 'p6' },
   { id: 'a4', type: 'shoot', message: 'Shoot scheduled for Singh & Sons Realty', actor: 'Albus Dumbledore', timestamp: daysAgo(3), projectId: 'p3' },
-  { id: 'a5', type: 'payment', message: 'Advance payment received from Singh & Sons Realty', actor: 'Shubham Bhandari', timestamp: daysAgo(6), projectId: 'p3' },
+  { id: 'a5', type: 'payment', message: 'Advance payment received from Singh & Sons Realty', actor: 'Shubham', timestamp: daysAgo(6), projectId: 'p3' },
   { id: 'a6', type: 'delivery', message: 'Brand film delivered to TechVision India', actor: 'Albus Dumbledore', timestamp: daysAgo(7), projectId: 'p7' },
-  { id: 'a7', type: 'lead', message: 'New lead captured: Karan Malhotra (Malhotra Foods)', actor: 'Shubham Bhandari', timestamp: daysAgo(2), projectId: 'p5' },
+  { id: 'a7', type: 'lead', message: 'New lead captured: Karan Malhotra (Malhotra Foods)', actor: 'Shubham', timestamp: daysAgo(2), projectId: 'p5' },
 ];
 
 export const REVENUE_DATA = [
