@@ -1,0 +1,77 @@
+export interface Lead {
+  id: string;
+  leadId: string;
+  phoneNumber: string;
+  date: string;
+  adRefCode: string;
+  source: string;
+  assignedTo: string;
+  name: string;
+  reachoutDone: string;
+  servicePitched: string;
+  cost: string;
+  status: string;
+  clientEmail: string;
+  proposalSent: string;
+  proposalAccepted: boolean;
+  proposalSentAt: string;
+  serialNo: number;
+  searchText: string;
+}
+
+export type LeadFilterTab = 'all' | 'new_leads' | 'proposal_sent' | 'accepted';
+
+export const LEAD_STATUS_META: Record<
+  string,
+  { label: string; color: string; bg: string; border: string }
+> = {
+  'New Lead': {
+    label: 'New Lead',
+    color: '#8B949E',
+    bg: 'rgba(139,148,158,0.12)',
+    border: 'rgba(139,148,158,0.3)',
+  },
+  'Proposal Sent': {
+    label: 'Proposal Sent',
+    color: '#D29922',
+    bg: 'rgba(210,153,34,0.12)',
+    border: 'rgba(210,153,34,0.3)',
+  },
+  'Proposal Accepted': {
+    label: 'Proposal Accepted',
+    color: '#3FB950',
+    bg: 'rgba(63,185,80,0.12)',
+    border: 'rgba(63,185,80,0.3)',
+  },
+  'Shoot Scheduled': {
+    label: 'Shoot Scheduled',
+    color: '#58A6FF',
+    bg: 'rgba(88,166,255,0.12)',
+    border: 'rgba(88,166,255,0.3)',
+  },
+  Editing: {
+    label: 'Editing',
+    color: '#E57C2B',
+    bg: 'rgba(229,124,43,0.12)',
+    border: 'rgba(229,124,43,0.3)',
+  },
+  'Draft Sent': {
+    label: 'Draft Sent',
+    color: '#A371F7',
+    bg: 'rgba(163,113,247,0.12)',
+    border: 'rgba(163,113,247,0.3)',
+  },
+  Delivered: {
+    label: 'Delivered',
+    color: '#238636',
+    bg: 'rgba(35,134,54,0.15)',
+    border: 'rgba(35,134,54,0.4)',
+  },
+};
+
+export const DEFAULT_LEAD_STATUS_META = {
+  label: 'Unknown',
+  color: '#8B949E',
+  bg: 'rgba(139,148,158,0.12)',
+  border: 'rgba(139,148,158,0.3)',
+};
