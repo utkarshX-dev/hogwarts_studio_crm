@@ -1,3 +1,14 @@
+export interface CreateLeadInput {
+  name: string;
+  phoneNumber: string;
+  whatsapp?: string;
+  servicePitched: string;
+  assignedTo: string;
+  clientEmail?: string;
+  cost?: string;
+  reachoutDone: 'yes' | 'no';
+}
+
 export interface Lead {
   id: string;
   leadId: string;

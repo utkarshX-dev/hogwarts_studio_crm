@@ -1,11 +1,15 @@
 import { google } from 'googleapis';
-import type { Lead } from '@/lib/sheets/types';
+import type { CreateLeadInput, Lead } from '@/lib/sheets/types';
 
 const SPREADSHEET_ID =
   process.env.GOOGLE_SHEETS_SPREADSHEET_ID ??
   '1rZQ7OboQX3P83FprGJ7zIqpIjW4oUggIik96JDQzPgU';
 
-const CLIENTS_RANGE = 'Clients!A2:O';
+const CLIENTS_SHEET = 'Clients';
+const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:O`;
+const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:O`;
+
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
 function parseProposalAccepted(value: string | undefined): boolean {
   if (!value) return false;
@@ -56,17 +60,55 @@ function getAuthClient() {
   return new google.auth.JWT({
     email,
     key: privateKey,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    scopes: [SHEETS_SCOPE],
   });
 }
 
-export async function fetchClientsFromSheet(): Promise<Lead[]> {
+function getSheetsClient() {
   const auth = getAuthClient();
-  const sheets = google.sheets({ version: 'v4', auth });
+  return google.sheets({ version: 'v4', auth });
+}
+
+function generateLeadId(): string {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `HL-${timestamp}-${random}`;
+}
+
+function formatLeadDate(date: Date): string {
+  return date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
+  return [
+    leadId,
+    input.phoneNumber.trim(),
+    formatLeadDate(new Date()),
+    input.whatsapp?.trim() ?? '',
+    'Manual Entry',
+    input.assignedTo.trim(),
+    input.name.trim(),
+    input.reachoutDone,
+    input.servicePitched.trim(),
+    input.cost?.trim() ?? '',
+    'New Lead',
+    input.clientEmail?.trim() ?? '',
+    'false',
+    'false',
+    '',
+  ];
+}
+
+export async function fetchClientsFromSheet(): Promise<Lead[]> {
+  const sheets = getSheetsClient();
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: CLIENTS_RANGE,
+    range: CLIENTS_READ_RANGE,
   });
 
   const rows = response.data.values ?? [];
@@ -74,4 +116,48 @@ export async function fetchClientsFromSheet(): Promise<Lead[]> {
   return rows
     .map((row, index) => rowToLead(row as string[], index))
     .filter((lead): lead is Lead => lead !== null);
+}
+
+export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead> {
+  const sheets = getSheetsClient();
+  const leadId = generateLeadId();
+  const row = buildLeadRow(input, leadId);
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: CLIENTS_APPEND_RANGE,
+    valueInputOption: 'USER_ENTERED',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: [row],
+    },
+  });
+
+  const existingLeads = await fetchClientsFromSheet();
+  const createdLead = existingLeads.find((lead) => lead.leadId === leadId);
+
+  if (createdLead) {
+    return createdLead;
+  }
+
+  return {
+    id: leadId,
+    leadId,
+    phoneNumber: input.phoneNumber.trim(),
+    date: row[2],
+    adRefCode: row[3],
+    source: row[4],
+    assignedTo: input.assignedTo.trim(),
+    name: input.name.trim(),
+    reachoutDone: input.reachoutDone,
+    servicePitched: input.servicePitched.trim(),
+    cost: input.cost?.trim() ?? '',
+    status: 'New Lead',
+    clientEmail: input.clientEmail?.trim() ?? '',
+    proposalSent: 'false',
+    proposalAccepted: false,
+    proposalSentAt: '',
+    serialNo: existingLeads.length + 1,
+    searchText: `${input.name.trim()} ${input.phoneNumber.trim()}`.toLowerCase(),
+  };
 }

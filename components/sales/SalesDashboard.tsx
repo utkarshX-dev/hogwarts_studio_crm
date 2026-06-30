@@ -29,14 +29,16 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw } from 'lucide-react';
 import { formatINR } from '@/lib/formatter';
-import { useWorkflow } from '@/hooks/use-workflow';
 import { useAuth } from '@/lib/auth-context';
+import { MOCK_USERS } from '@/lib/auth';
 import type { Lead, LeadFilterTab } from '@/lib/sheets/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 const PROPOSAL_WEBHOOK_URL =
   'https://hogwartsautomation.app.n8n.cloud/webhook/send-proposal';
+
+const DEFAULT_ASSIGNED_TO = MOCK_USERS.manager.name;
 
 const FILTER_TABS: { value: LeadFilterTab; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -56,9 +58,12 @@ function parseCost(value: string): number {
 
 export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
   const { user } = useAuth();
-  const { triggerWorkflow, triggering } = useWorkflow();
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [refreshing, setRefreshing] = useState(false);
+  const [creatingLead, setCreatingLead] = useState(false);
+  const [newLeadService, setNewLeadService] = useState('podcast');
+  const [reachoutDone, setReachoutDone] = useState<'yes' | 'no'>('no');
+  const [assignedTo, setAssignedTo] = useState(DEFAULT_ASSIGNED_TO);
   const [proposalOpen, setProposalOpen] = useState(false);
   const [leadOpen, setLeadOpen] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
@@ -162,19 +167,56 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     }
   };
 
+  const handleLeadOpenChange = (open: boolean) => {
+    setLeadOpen(open);
+    if (open) {
+      setNewLeadService('podcast');
+      setReachoutDone('no');
+      setAssignedTo(DEFAULT_ASSIGNED_TO);
+    }
+  };
+
   const handleCreateLead = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    await triggerWorkflow('lead.created', {
-      data: {
-        company: form.get('company'),
-        contact: form.get('contact'),
-        service: form.get('service'),
-      },
-      triggeredBy: user?.name ?? 'sales',
-    });
-    setLeadOpen(false);
-    toast.success('Lead Created', { description: 'New lead added to pipeline' });
+    const formEl = e.currentTarget;
+    const form = new FormData(formEl);
+
+    setCreatingLead(true);
+    try {
+      const response = await fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.get('company'),
+          phoneNumber: form.get('contact'),
+          whatsapp: form.get('whatsapp'),
+          service: newLeadService,
+          assignedTo,
+          clientEmail: form.get('clientEmail'),
+          cost: form.get('cost'),
+          reachoutDone,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to create lead');
+      }
+
+      formEl.reset();
+      setNewLeadService('podcast');
+      setReachoutDone('no');
+      setAssignedTo(DEFAULT_ASSIGNED_TO);
+      setLeadOpen(false);
+      toast.success('Lead Created', { description: 'New lead added to Google Sheets' });
+      await refreshLeads(true);
+    } catch (error) {
+      toast.error('Failed to create lead', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setCreatingLead(false);
+    }
   };
 
   const renderProposalAction = (lead: Lead) => {
@@ -495,7 +537,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
         </DialogContent>
       </Dialog>
 
-      <Sheet open={leadOpen} onOpenChange={setLeadOpen}>
+      <Sheet open={leadOpen} onOpenChange={handleLeadOpenChange}>
         <SheetContent className="w-full sm:max-w-md overflow-y-auto">
           <SheetHeader>
             <SheetTitle>New Lead</SheetTitle>
@@ -516,7 +558,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="service">Service Required</Label>
-              <Select name="service" defaultValue="podcast">
+              <Select value={newLeadService} onValueChange={setNewLeadService}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -530,11 +572,41 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="clientEmail">Client Email</Label>
+              <Input id="clientEmail" name="clientEmail" type="email" placeholder="client@example.com" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cost">Cost in ₹</Label>
+              <Input id="cost" name="cost" type="number" min="0" step="0.01" placeholder="0" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="assignTo">Assign To</Label>
+              <Input
+                id="assignTo"
+                name="assignTo"
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reachoutDone">Reachout Done</Label>
+              <Select value={reachoutDone} onValueChange={(v) => setReachoutDone(v as 'yes' | 'no')}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="no">No</SelectItem>
+                  <SelectItem value="yes">Yes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <SheetFooter className="mt-6">
               <Button type="button" variant="outline" onClick={() => setLeadOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={triggering['lead.created']}>
+              <Button type="submit" disabled={creatingLead}>
                 <Plus className="mr-1.5 h-4 w-4" />
                 Create Lead
               </Button>
