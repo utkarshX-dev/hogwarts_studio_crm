@@ -21,12 +21,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Verifier name is required' }, { status: 400 });
     }
 
-    const payload = { lead_id, verified_by };
+    const url = new URL(CONFIRM_PAYMENT_WEBHOOK_URL);
+    url.searchParams.set('lead_id', lead_id);
+    url.searchParams.set('verified_by', verified_by);
 
-    const response = await fetch(CONFIRM_PAYMENT_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
     });
 
     const text = await response.text().catch(() => '');
