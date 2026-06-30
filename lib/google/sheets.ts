@@ -73,10 +73,16 @@ function joinLeadsWithPayments(leads: Lead[], payments: Payment[]): Lead[] {
     paymentByLeadId.set(payment.leadId, payment);
   }
 
-  return leads.map((lead) => ({
-    ...lead,
-    payment: paymentByLeadId.get(lead.leadId) ?? null,
-  }));
+  return leads.map((lead) => {
+    const payment = paymentByLeadId.get(lead.leadId) ?? null;
+    const payment_status = payment?.paymentStatus?.trim() || undefined;
+
+    return {
+      ...lead,
+      payment,
+      payment_status,
+    };
+  });
 }
 
 function getAuthClient() {

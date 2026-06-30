@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 const CONFIRM_PAYMENT_WEBHOOK_URL =
   process.env.N8N_CONFIRM_PAYMENT_WEBHOOK_URL ??
-  'https://hogwartsautomation.app.n8n.cloud/webhook/confirm-payment';
+  'https://hogwartsautomation.app.n8n.cloud/webhook/confirm-payment-link';
 
 export async function POST(request: Request) {
   try {
@@ -29,16 +29,25 @@ export async function POST(request: Request) {
       body: JSON.stringify(payload),
     });
 
+    const text = await response.text().catch(() => '');
+
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      console.error('n8n confirm-payment webhook failed:', response.status, text);
+      console.error('n8n confirm-payment-link webhook failed:', response.status, text);
       return NextResponse.json(
-        { error: 'Failed to confirm payment via automation' },
+        { error: text || 'Failed to confirm payment via automation' },
         { status: 502 }
       );
     }
 
-    const data = await response.json().catch(() => ({}));
+    let data: unknown = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { message: text };
+      }
+    }
+
     return NextResponse.json({ success: true, data });
   } catch (error) {
     console.error('Failed to proxy confirm-payment webhook:', error);

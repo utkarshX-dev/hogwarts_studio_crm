@@ -27,7 +27,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw } from 'lucide-react';
+import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2 } from 'lucide-react';
 import { formatINR } from '@/lib/formatter';
 import { useAuth } from '@/lib/auth-context';
 import { MOCK_USERS } from '@/lib/auth';
@@ -37,6 +37,7 @@ import {
   filterSalesLeads,
   isPaymentLinkSent,
   isPendingPaymentVerification,
+  isPaymentVerified,
   PAYMENT_STATUS,
 } from '@/lib/sheets/payment-utils';
 import { PaymentStatusIndicator } from '@/components/sales/PaymentStatusIndicator';
@@ -91,9 +92,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
   const [paymentLinkOpen, setPaymentLinkOpen] = useState(false);
   const [paymentLead, setPaymentLead] = useState<Lead | null>(null);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
-  const [verifyOpen, setVerifyOpen] = useState(false);
-  const [verifyLead, setVerifyLead] = useState<Lead | null>(null);
-  const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [verifyingLeadId, setVerifyingLeadId] = useState<string | null>(null);
 
   const refreshLeads = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -274,59 +273,52 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     }
   };
 
-  const handleConfirmPayment = async () => {
-    if (!verifyLead || !user) return;
+  const handleVerifyPayment = async (lead: Lead) => {
+    if (!user) return;
 
-    setConfirmingPayment(true);
+    setVerifyingLeadId(lead.leadId);
     try {
       const response = await fetch('/api/confirm-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          lead_id: verifyLead.leadId,
+          lead_id: lead.leadId,
           verified_by: user.name,
         }),
       });
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error ?? 'Failed to confirm payment');
+        throw new Error(data.error ?? 'Failed to verify payment');
       }
 
       setLeads((prev) =>
-        prev.map((lead) =>
-          lead.leadId === verifyLead.leadId && lead.payment
+        prev.map((item) =>
+          item.leadId === lead.leadId
             ? {
-                ...lead,
-                payment: {
-                  ...lead.payment,
-                  paymentStatus: PAYMENT_STATUS.CONFIRMED,
-                  verifiedBy: user.name,
-                },
+                ...item,
+                payment_status: PAYMENT_STATUS.VERIFIED,
+                payment: item.payment
+                  ? {
+                      ...item.payment,
+                      paymentStatus: PAYMENT_STATUS.VERIFIED,
+                      verifiedBy: user.name,
+                    }
+                  : null,
               }
-            : lead
+            : item
         )
       );
 
-      setVerifyOpen(false);
-      setVerifyLead(null);
-      toast.success('Payment confirmed!');
+      toast.success('Payment verified!');
       await refreshLeads(true);
     } catch (error) {
-      toast.error('Failed to confirm payment', {
+      toast.error('Failed to verify payment', {
         description: error instanceof Error ? error.message : 'Unknown error',
       });
     } finally {
-      setConfirmingPayment(false);
+      setVerifyingLeadId(null);
     }
-  };
-
-  const handleRejectPayment = () => {
-    setVerifyOpen(false);
-    setVerifyLead(null);
-    toast.info('Payment rejected', {
-      description: 'Client will be asked to upload payment proof again.',
-    });
   };
 
   const renderProposalAction = (lead: Lead) => {
@@ -406,30 +398,44 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     );
   };
 
-  const renderVerifyAction = (lead: Lead) => {
-    if (!isPendingPaymentVerification(lead)) return null;
+  const renderVerifyButton = (lead: Lead) => {
+    if (!isPendingPaymentVerification(lead) || isPaymentVerified(lead)) return null;
+
+    const isVerifying = verifyingLeadId === lead.leadId;
 
     return (
       <Button
         variant="outline"
         size="sm"
-        className="border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
+        className="border-amber-500/40 text-amber-600 hover:bg-amber-500/10 h-7 text-xs"
+        disabled={isVerifying}
         onClick={(e) => {
           e.stopPropagation();
-          setVerifyLead(lead);
-          setVerifyOpen(true);
+          handleVerifyPayment(lead);
         }}
       >
+        {isVerifying ? (
+          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+        ) : null}
         Verify Payment
       </Button>
     );
   };
 
+  const renderStatusCell = (lead: Lead) => (
+    <div className="flex flex-col gap-1.5">
+      <LeadStatusBadge status={lead.status} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <PaymentStatusIndicator lead={lead} />
+        {renderVerifyButton(lead)}
+      </div>
+    </div>
+  );
+
   const renderActions = (lead: Lead) => (
     <div className="flex flex-col gap-1.5 items-start">
       {renderProposalAction(lead)}
       {renderPaymentAction(lead)}
-      {renderVerifyAction(lead)}
     </div>
   );
 
@@ -467,12 +473,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     {
       key: 'status',
       header: 'Status',
-      cell: (lead) => (
-        <div className="flex flex-col gap-1">
-          <LeadStatusBadge status={lead.status} />
-          <PaymentStatusIndicator lead={lead} />
-        </div>
-      ),
+      cell: (lead) => renderStatusCell(lead),
     },
     {
       key: 'action',
@@ -636,12 +637,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
                   {
                     key: 'status',
                     header: 'Status',
-                    cell: (lead) => (
-                      <div className="flex flex-col gap-1">
-                        <LeadStatusBadge status={lead.status} />
-                        <PaymentStatusIndicator lead={lead} />
-                      </div>
-                    ),
+                    cell: (lead) => renderStatusCell(lead),
                   },
                   {
                     key: 'accepted',
@@ -758,58 +754,6 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
             <Button onClick={handleSendPaymentLink} disabled={sendingPaymentLink}>
               <Wallet className="mr-1.5 h-4 w-4" />
               Send Payment Link
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={verifyOpen}
-        onOpenChange={(open) => {
-          setVerifyOpen(open);
-          if (!open) setVerifyLead(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Verify Payment</DialogTitle>
-            <DialogDescription>
-              Review the payment screenshot for {verifyLead?.name ?? 'this client'}
-            </DialogDescription>
-          </DialogHeader>
-          {verifyLead?.payment?.screenshotUrl ? (
-            <div className="space-y-3">
-              <a
-                href={verifyLead.payment.screenshotUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-sm text-blue-500 hover:underline"
-              >
-                Open screenshot in new tab
-              </a>
-              <div className="rounded-md border border-border overflow-hidden bg-muted/30">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={verifyLead.payment.screenshotUrl}
-                  alt="Payment screenshot"
-                  className="w-full max-h-80 object-contain"
-                />
-              </div>
-              {verifyLead.payment.utrNumber && (
-                <p className="text-sm text-muted-foreground">
-                  UTR: <span className="font-medium text-foreground">{verifyLead.payment.utrNumber}</span>
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No payment screenshot available.</p>
-          )}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={handleRejectPayment}>
-              ❌ Reject/Request Again
-            </Button>
-            <Button onClick={handleConfirmPayment} disabled={confirmingPayment}>
-              ✅ Confirm Payment
             </Button>
           </DialogFooter>
         </DialogContent>

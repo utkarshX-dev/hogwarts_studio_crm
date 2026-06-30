@@ -43,6 +43,7 @@ export interface Lead {
   serialNo: number;
   searchText: string;
   payment: Payment | null;
+  payment_status?: string;
 }
 
 export type LeadFilterTab = 'all' | 'new_leads' | 'proposal_sent' | 'accepted';
