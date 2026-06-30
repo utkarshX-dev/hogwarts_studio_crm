@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { appendClientToSheet, fetchClientsFromSheet } from '@/lib/google/sheets';
+import { appendClientToSheet, fetchLeadsWithPayments } from '@/lib/google/sheets';
 import type { CreateLeadInput } from '@/lib/sheets/types';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,7 @@ const SERVICE_LABELS: Record<string, string> = {
 
 export async function GET() {
   try {
-    const leads = await fetchClientsFromSheet();
+    const leads = await fetchLeadsWithPayments();
     return NextResponse.json({ leads });
   } catch (error) {
     console.error('Failed to fetch clients from Google Sheets:', error);

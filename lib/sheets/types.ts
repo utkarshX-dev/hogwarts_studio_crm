@@ -1,3 +1,17 @@
+export interface Payment {
+  paymentId: string;
+  leadId: string;
+  clientName: string;
+  amount: string;
+  paymentLinkSent: string;
+  paymentLinkSentAt: string;
+  screenshotUrl: string;
+  utrNumber: string;
+  paymentStatus: string;
+  verifiedBy: string;
+  verifiedAt: string;
+}
+
 export interface CreateLeadInput {
   name: string;
   phoneNumber: string;
@@ -28,6 +42,7 @@ export interface Lead {
   proposalSentAt: string;
   serialNo: number;
   searchText: string;
+  payment: Payment | null;
 }
 
 export type LeadFilterTab = 'all' | 'new_leads' | 'proposal_sent' | 'accepted';

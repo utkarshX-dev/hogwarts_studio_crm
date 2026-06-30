@@ -32,6 +32,20 @@ import { formatINR } from '@/lib/formatter';
 import { useAuth } from '@/lib/auth-context';
 import { MOCK_USERS } from '@/lib/auth';
 import type { Lead, LeadFilterTab } from '@/lib/sheets/types';
+import {
+  canSendPaymentLink,
+  filterSalesLeads,
+  isPaymentLinkSent,
+  isPendingPaymentVerification,
+  PAYMENT_STATUS,
+} from '@/lib/sheets/payment-utils';
+import { PaymentStatusIndicator } from '@/components/sales/PaymentStatusIndicator';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -74,6 +88,12 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     servicePitched: '',
     cost: '',
   });
+  const [paymentLinkOpen, setPaymentLinkOpen] = useState(false);
+  const [paymentLead, setPaymentLead] = useState<Lead | null>(null);
+  const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [verifyLead, setVerifyLead] = useState<Lead | null>(null);
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
 
   const refreshLeads = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -84,6 +104,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
         throw new Error(data.error ?? 'Failed to refresh leads');
       }
       setLeads(data.leads ?? []);
+      window.dispatchEvent(new CustomEvent('leads-updated'));
     } catch (error) {
       if (!silent) {
         toast.error('Failed to refresh leads', {
@@ -103,9 +124,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
   }, [refreshLeads]);
 
   const salesLeads = useMemo(() => {
-    return leads.filter(
-      (lead) => lead.assignedTo === user?.name || user?.role === 'manager'
-    );
+    return filterSalesLeads(leads, user?.name, user?.role);
   }, [leads, user?.name, user?.role]);
 
   const filteredLeads = useMemo(() => {
@@ -219,6 +238,97 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     }
   };
 
+  const handleSendPaymentLink = async () => {
+    if (!paymentLead || !user) return;
+
+    setSendingPaymentLink(true);
+    try {
+      const response = await fetch('/api/send-payment-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead_id: paymentLead.leadId,
+          client_name: paymentLead.name,
+          client_email: paymentLead.clientEmail,
+          cost: paymentLead.cost,
+          salesperson_name: paymentLead.assignedTo,
+          salesperson_email: user.email,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to send payment link');
+      }
+
+      setPaymentLinkOpen(false);
+      setPaymentLead(null);
+      toast.success('Payment link sent!');
+      await refreshLeads(true);
+    } catch (error) {
+      toast.error('Failed to send payment link', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setSendingPaymentLink(false);
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!verifyLead || !user) return;
+
+    setConfirmingPayment(true);
+    try {
+      const response = await fetch('/api/confirm-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead_id: verifyLead.leadId,
+          verified_by: user.name,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to confirm payment');
+      }
+
+      setLeads((prev) =>
+        prev.map((lead) =>
+          lead.leadId === verifyLead.leadId && lead.payment
+            ? {
+                ...lead,
+                payment: {
+                  ...lead.payment,
+                  paymentStatus: PAYMENT_STATUS.CONFIRMED,
+                  verifiedBy: user.name,
+                },
+              }
+            : lead
+        )
+      );
+
+      setVerifyOpen(false);
+      setVerifyLead(null);
+      toast.success('Payment confirmed!');
+      await refreshLeads(true);
+    } catch (error) {
+      toast.error('Failed to confirm payment', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setConfirmingPayment(false);
+    }
+  };
+
+  const handleRejectPayment = () => {
+    setVerifyOpen(false);
+    setVerifyLead(null);
+    toast.info('Payment rejected', {
+      description: 'Client will be asked to upload payment proof again.',
+    });
+  };
+
   const renderProposalAction = (lead: Lead) => {
     if (lead.proposalAccepted) {
       return (
@@ -255,6 +365,74 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     return null;
   };
 
+  const renderPaymentAction = (lead: Lead) => {
+    if (isPaymentLinkSent(lead)) {
+      return (
+        <Button variant="outline" size="sm" disabled className="text-muted-foreground">
+          Payment Link Sent ✓
+        </Button>
+      );
+    }
+
+    if (canSendPaymentLink(lead)) {
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setPaymentLead(lead);
+            setPaymentLinkOpen(true);
+          }}
+        >
+          <Wallet className="mr-1 h-3 w-3" />
+          Send Payment Link
+        </Button>
+      );
+    }
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0} className="inline-flex">
+            <Button variant="outline" size="sm" disabled className="text-muted-foreground">
+              <Wallet className="mr-1 h-3 w-3" />
+              Payment
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>Waiting for client to accept proposal</TooltipContent>
+      </Tooltip>
+    );
+  };
+
+  const renderVerifyAction = (lead: Lead) => {
+    if (!isPendingPaymentVerification(lead)) return null;
+
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
+        onClick={(e) => {
+          e.stopPropagation();
+          setVerifyLead(lead);
+          setVerifyOpen(true);
+        }}
+      >
+        Verify Payment
+      </Button>
+    );
+  };
+
+  const renderActions = (lead: Lead) => (
+    <div className="flex flex-col gap-1.5 items-start">
+      {renderProposalAction(lead)}
+      {renderPaymentAction(lead)}
+      {renderVerifyAction(lead)}
+    </div>
+  );
+
   const columns: Column<Lead>[] = [
     {
       key: 'serialNo',
@@ -289,12 +467,18 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     {
       key: 'status',
       header: 'Status',
-      cell: (lead) => <LeadStatusBadge status={lead.status} />,
+      cell: (lead) => (
+        <div className="flex flex-col gap-1">
+          <LeadStatusBadge status={lead.status} />
+          <PaymentStatusIndicator lead={lead} />
+        </div>
+      ),
     },
     {
       key: 'action',
       header: 'Actions',
-      cell: (lead) => renderProposalAction(lead),
+      cell: (lead) => renderActions(lead),
+      className: 'min-w-[160px]',
     },
   ];
 
@@ -318,6 +502,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
   ];
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div>
       <PageHeader
         title="Sales"
@@ -451,7 +636,12 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
                   {
                     key: 'status',
                     header: 'Status',
-                    cell: (lead) => <LeadStatusBadge status={lead.status} />,
+                    cell: (lead) => (
+                      <div className="flex flex-col gap-1">
+                        <LeadStatusBadge status={lead.status} />
+                        <PaymentStatusIndicator lead={lead} />
+                      </div>
+                    ),
                   },
                   {
                     key: 'accepted',
@@ -537,6 +727,94 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={paymentLinkOpen} onOpenChange={setPaymentLinkOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Payment Link</DialogTitle>
+            <DialogDescription>
+              Send payment instructions to {paymentLead?.clientEmail || 'the client'}?
+            </DialogDescription>
+          </DialogHeader>
+          {paymentLead && (
+            <div className="rounded-md border border-border p-3 space-y-1 text-sm">
+              <p className="font-medium">{paymentLead.name}</p>
+              <p className="text-muted-foreground">{paymentLead.clientEmail}</p>
+              <p className="text-muted-foreground tabular-nums">
+                Amount: {paymentLead.cost ? formatINR(parseCost(paymentLead.cost)) : '—'}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setPaymentLinkOpen(false);
+                setPaymentLead(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSendPaymentLink} disabled={sendingPaymentLink}>
+              <Wallet className="mr-1.5 h-4 w-4" />
+              Send Payment Link
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={verifyOpen}
+        onOpenChange={(open) => {
+          setVerifyOpen(open);
+          if (!open) setVerifyLead(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Verify Payment</DialogTitle>
+            <DialogDescription>
+              Review the payment screenshot for {verifyLead?.name ?? 'this client'}
+            </DialogDescription>
+          </DialogHeader>
+          {verifyLead?.payment?.screenshotUrl ? (
+            <div className="space-y-3">
+              <a
+                href={verifyLead.payment.screenshotUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-sm text-blue-500 hover:underline"
+              >
+                Open screenshot in new tab
+              </a>
+              <div className="rounded-md border border-border overflow-hidden bg-muted/30">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={verifyLead.payment.screenshotUrl}
+                  alt="Payment screenshot"
+                  className="w-full max-h-80 object-contain"
+                />
+              </div>
+              {verifyLead.payment.utrNumber && (
+                <p className="text-sm text-muted-foreground">
+                  UTR: <span className="font-medium text-foreground">{verifyLead.payment.utrNumber}</span>
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No payment screenshot available.</p>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={handleRejectPayment}>
+              ❌ Reject/Request Again
+            </Button>
+            <Button onClick={handleConfirmPayment} disabled={confirmingPayment}>
+              ✅ Confirm Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Sheet open={leadOpen} onOpenChange={handleLeadOpenChange}>
         <SheetContent className="w-full sm:max-w-md overflow-y-auto">
           <SheetHeader>
@@ -615,5 +893,6 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
         </SheetContent>
       </Sheet>
     </div>
+    </TooltipProvider>
   );
 }

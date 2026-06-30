@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,9 @@ import { Search, Bell, LogOut, User as UserIcon, Settings, Menu, Command } from 
 import { getNavForRole } from '@/lib/navigation';
 import { ACTIVITY } from '@/lib/mock-data';
 import { formatRelativeTime } from '@/lib/formatter';
+import type { Lead } from '@/lib/sheets/types';
+import { isPendingPaymentVerification } from '@/lib/sheets/payment-utils';
+import { cn } from '@/lib/utils';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -34,7 +37,46 @@ export function Header({ onMenuClick }: HeaderProps) {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [pendingVerifications, setPendingVerifications] = useState(0);
+  const [pendingLeads, setPendingLeads] = useState<Lead[]>([]);
   const navItems = user ? getNavForRole(user.role) : [];
+
+  const refreshPendingVerifications = useCallback(async () => {
+    if (!user) {
+      setPendingVerifications(0);
+      setPendingLeads([]);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/clients', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) return;
+
+      const leads: Lead[] = data.leads ?? [];
+      const pending = leads.filter(
+        (lead) =>
+          isPendingPaymentVerification(lead) &&
+          (lead.assignedTo === user.name || user.role === 'manager')
+      );
+
+      setPendingVerifications(pending.length);
+      setPendingLeads(pending);
+    } catch {
+      // silently ignore header notification fetch errors
+    }
+  }, [user]);
+
+  useEffect(() => {
+    refreshPendingVerifications();
+    const interval = setInterval(refreshPendingVerifications, 30000);
+    const onLeadsUpdated = () => refreshPendingVerifications();
+    window.addEventListener('leads-updated', onLeadsUpdated);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('leads-updated', onLeadsUpdated);
+    };
+  }, [refreshPendingVerifications]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -71,20 +113,47 @@ export function Header({ onMenuClick }: HeaderProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="h-4 w-4" />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive" />
+              {pendingVerifications > 0 && (
+                <span
+                  className={cn(
+                    'absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground'
+                  )}
+                >
+                  {pendingVerifications > 9 ? '9+' : pendingVerifications}
+                </span>
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-80">
-            <DropdownMenuLabel>Recent Activity</DropdownMenuLabel>
+            <DropdownMenuLabel>
+              {pendingVerifications > 0
+                ? `${pendingVerifications} payment${pendingVerifications === 1 ? '' : 's'} awaiting verification`
+                : 'Notifications'}
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {ACTIVITY.slice(0, 5).map((a) => (
-              <div key={a.id} className="px-2 py-2 text-sm">
-                <p className="text-foreground leading-tight">{a.message}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  {a.actor} · {formatRelativeTime(a.timestamp)}
-                </p>
-              </div>
-            ))}
+            {pendingVerifications > 0 ? (
+              pendingLeads.map((lead) => (
+                <DropdownMenuItem
+                  key={lead.leadId}
+                  onClick={() => router.push('/sales')}
+                  className="flex flex-col items-start gap-0.5 py-2"
+                >
+                  <span className="font-medium">{lead.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    Screenshot uploaded — pending verification
+                  </span>
+                </DropdownMenuItem>
+              ))
+            ) : (
+              ACTIVITY.slice(0, 5).map((a) => (
+                <div key={a.id} className="px-2 py-2 text-sm">
+                  <p className="text-foreground leading-tight">{a.message}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {a.actor} · {formatRelativeTime(a.timestamp)}
+                  </p>
+                </div>
+              ))
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 

@@ -1,12 +1,12 @@
 import { SalesDashboard } from '@/components/sales/SalesDashboard';
-import { fetchClientsFromSheet } from '@/lib/google/sheets';
+import { fetchLeadsWithPayments } from '@/lib/google/sheets';
 import type { Lead } from '@/lib/sheets/types';
 
 export const dynamic = 'force-dynamic';
 
 async function getInitialLeads(): Promise<Lead[]> {
   try {
-    return await fetchClientsFromSheet();
+    return await fetchLeadsWithPayments();
   } catch (error) {
     console.error('Failed to fetch initial leads:', error);
     return [];

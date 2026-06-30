@@ -1,13 +1,15 @@
 import { google } from 'googleapis';
-import type { CreateLeadInput, Lead } from '@/lib/sheets/types';
+import type { CreateLeadInput, Lead, Payment } from '@/lib/sheets/types';
 
 const SPREADSHEET_ID =
   process.env.GOOGLE_SHEETS_SPREADSHEET_ID ??
   '1rZQ7OboQX3P83FprGJ7zIqpIjW4oUggIik96JDQzPgU';
 
 const CLIENTS_SHEET = 'Clients';
+const PAYMENTS_SHEET = 'Payments';
 const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:O`;
 const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:O`;
+const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
 
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -42,7 +44,39 @@ function rowToLead(row: string[], index: number): Lead | null {
     proposalSentAt: row[14]?.trim() ?? '',
     serialNo: index + 1,
     searchText: `${name} ${phoneNumber}`.toLowerCase(),
+    payment: null,
   };
+}
+
+function rowToPayment(row: string[]): Payment | null {
+  const leadId = row[1]?.trim();
+  if (!leadId) return null;
+
+  return {
+    paymentId: row[0]?.trim() ?? '',
+    leadId,
+    clientName: row[2]?.trim() ?? '',
+    amount: row[3]?.trim() ?? '',
+    paymentLinkSent: row[4]?.trim() ?? '',
+    paymentLinkSentAt: row[5]?.trim() ?? '',
+    screenshotUrl: row[6]?.trim() ?? '',
+    utrNumber: row[7]?.trim() ?? '',
+    paymentStatus: row[8]?.trim() ?? '',
+    verifiedBy: row[9]?.trim() ?? '',
+    verifiedAt: row[10]?.trim() ?? '',
+  };
+}
+
+function joinLeadsWithPayments(leads: Lead[], payments: Payment[]): Lead[] {
+  const paymentByLeadId = new Map<string, Payment>();
+  for (const payment of payments) {
+    paymentByLeadId.set(payment.leadId, payment);
+  }
+
+  return leads.map((lead) => ({
+    ...lead,
+    payment: paymentByLeadId.get(lead.leadId) ?? null,
+  }));
 }
 
 function getAuthClient() {
@@ -103,6 +137,35 @@ function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
   ];
 }
 
+export async function fetchPaymentsFromSheet(): Promise<Payment[]> {
+  try {
+    const sheets = getSheetsClient();
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: PAYMENTS_READ_RANGE,
+    });
+
+    const rows = response.data.values ?? [];
+
+    return rows
+      .map((row) => rowToPayment(row as string[]))
+      .filter((payment): payment is Payment => payment !== null);
+  } catch (error) {
+    console.error('Failed to fetch payments from Google Sheets:', error);
+    return [];
+  }
+}
+
+export async function fetchLeadsWithPayments(): Promise<Lead[]> {
+  const [leads, payments] = await Promise.all([
+    fetchClientsFromSheet(),
+    fetchPaymentsFromSheet(),
+  ]);
+
+  return joinLeadsWithPayments(leads, payments);
+}
+
 export async function fetchClientsFromSheet(): Promise<Lead[]> {
   const sheets = getSheetsClient();
 
@@ -133,7 +196,7 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
     },
   });
 
-  const existingLeads = await fetchClientsFromSheet();
+  const existingLeads = await fetchLeadsWithPayments();
   const createdLead = existingLeads.find((lead) => lead.leadId === leadId);
 
   if (createdLead) {
@@ -159,5 +222,6 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
     proposalSentAt: '',
     serialNo: existingLeads.length + 1,
     searchText: `${input.name.trim()} ${input.phoneNumber.trim()}`.toLowerCase(),
+    payment: null,
   };
 }
