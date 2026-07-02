@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatCard } from '@/components/shared/StatCard';
 import { StatusBadge, PriorityBadge } from '@/components/shared/Badges';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -13,7 +14,7 @@ import {
 import { AssignShootDialog } from '@/components/dialogs/AssignShootDialog';
 import { AssignEditorDialog } from '@/components/dialogs/AssignEditorDialog';
 import {
-  Briefcase, Camera, Scissors, CheckCircle, ArrowRight, Calendar, User, FileText, X,
+  Briefcase, Camera, Scissors, CheckCircle, ArrowRight, Calendar, ExternalLink,
 } from 'lucide-react';
 import { PROJECTS, EDITORS } from '@/lib/mock-data';
 import { KANBAN_COLUMNS, STATUS_META } from '@/lib/status-config';
@@ -21,6 +22,7 @@ import { formatINR, formatDate, titleCase } from '@/lib/formatter';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { useAuth } from '@/lib/auth-context';
 import type { Project, ProjectStatus } from '@/lib/types';
+import type { Shoot } from '@/lib/sheets/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -33,6 +35,30 @@ export default function ManagerPage() {
   const [shootOpen, setShootOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [shoots, setShoots] = useState<Shoot[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchShoots() {
+      try {
+        const response = await fetch('/api/shoots', { cache: 'no-store' });
+        const data = await response.json();
+        if (mounted && response.ok) {
+          setShoots(data.shoots ?? []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch footage review shoots:', error);
+      }
+    }
+
+    fetchShoots();
+    const interval = setInterval(fetchShoots, 30000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const openShoot = (p: Project) => { setShootProject(p); setShootOpen(true); };
   const openEditor = (p: Project) => { setEditorProject(p); setEditorOpen(true); };
@@ -67,6 +93,10 @@ export default function ManagerPage() {
   const pendingApprovals = PROJECTS.filter((p) => p.status === 'draft_sent').length;
   const availableEditors = EDITORS.filter((e) => e.status === 'available').length;
   const scheduledShoots = PROJECTS.filter((p) => p.shoot?.status === 'scheduled').length;
+  const footageReady = useMemo(
+    () => shoots.filter((shoot) => shoot.driveLinkUploaded.trim().toLowerCase() === 'true'),
+    [shoots]
+  );
 
   return (
     <div>
@@ -78,6 +108,50 @@ export default function ManagerPage() {
         <StatCard title="Scheduled Shoots" value={scheduledShoots} icon={Camera} />
         <StatCard title="Available Editors" value={availableEditors} icon={Scissors} />
       </div>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Footage Ready for Review</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {footageReady.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No uploaded footage waiting for review.
+            </p>
+          ) : (
+            footageReady.map((shoot) => (
+              <div
+                key={shoot.id}
+                className="flex flex-col gap-3 rounded-md border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium">{shoot.clientName || 'Untitled shoot'}</p>
+                    {shoot.editedByShootTeam.trim().toLowerCase() === 'true' && (
+                      <Badge className="bg-orange-500/15 text-orange-600 border-orange-500/30">
+                        Changes Made
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDate(shoot.shootDate)} · {shoot.shootMemberName || 'No shoot member'}
+                  </p>
+                  {shoot.editedByShootTeam.trim().toLowerCase() === 'true' && (
+                    <p className="text-xs text-orange-600">
+                      Additional cost: {formatINR(Number(shoot.additionalCost || 0))}
+                    </p>
+                  )}
+                </div>
+                <Button variant="outline" size="sm" asChild disabled={!shoot.dataLink}>
+                  <a href={shoot.dataLink} target="_blank" rel="noreferrer">
+                    View Footage <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                  </a>
+                </Button>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
 
       <div className="mb-4">
         <h2 className="text-base font-semibold mb-3">Pipeline Board</h2>

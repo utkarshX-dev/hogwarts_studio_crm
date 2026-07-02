@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import type { CreateLeadInput, Lead, Payment } from '@/lib/sheets/types';
+import type { CreateLeadInput, Lead, Payment, Shoot } from '@/lib/sheets/types';
 
 const SPREADSHEET_ID =
   process.env.GOOGLE_SHEETS_SPREADSHEET_ID ??
@@ -7,9 +7,11 @@ const SPREADSHEET_ID =
 
 const CLIENTS_SHEET = 'Clients';
 const PAYMENTS_SHEET = 'Payments';
+const SHOOT_SHEET = 'Shoot';
 const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:O`;
 const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:O`;
 const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
+const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
 
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -64,6 +66,49 @@ function rowToPayment(row: string[]): Payment | null {
     paymentStatus: row[8]?.trim() ?? '',
     verifiedBy: row[9]?.trim() ?? '',
     verifiedAt: row[10]?.trim() ?? '',
+  };
+}
+
+function rowToShoot(row: string[]): Shoot | null {
+  const shootId = row[0]?.trim();
+  const leadId = row[1]?.trim();
+
+  if (!shootId && !leadId) return null;
+
+  const id = shootId || leadId;
+  const clientName = row[2]?.trim() ?? '';
+  const contactNum = row[3]?.trim() ?? '';
+
+  return {
+    id,
+    shootId: shootId || leadId,
+    leadId,
+    clientName,
+    contactNum,
+    emailId: row[4]?.trim() ?? '',
+    shootDate: row[5]?.trim() ?? '',
+    shootStartTime: row[6]?.trim() ?? '',
+    shootEndTime: row[7]?.trim() ?? '',
+    camera: row[8]?.trim() ?? '',
+    teleprompter: row[9]?.trim() ?? '',
+    totalHours: row[10]?.trim() ?? '',
+    assignedTo: row[11]?.trim() ?? '',
+    bts: row[12]?.trim() ?? '',
+    shootMemberName: row[13]?.trim() ?? '',
+    shootMemberEmail: row[14]?.trim() ?? '',
+    dataLink: row[15]?.trim() ?? '',
+    driveLinkUploaded: row[16]?.trim() ?? 'false',
+    createdAt: row[17]?.trim() ?? '',
+    testimonials: row[18]?.trim() ?? '',
+    recordTime: row[19]?.trim() ?? '',
+    studioTime: row[20]?.trim() ?? '',
+    extraCamera: row[21]?.trim() ?? '',
+    extraTeleprompter: row[22]?.trim() ?? '',
+    extraDurationHours: row[23]?.trim() ?? '',
+    additionalCost: row[24]?.trim() ?? '',
+    shootNotes: row[25]?.trim() ?? '',
+    editedByShootTeam: row[26]?.trim() ?? 'false',
+    searchText: `${clientName} ${contactNum} ${leadId}`.toLowerCase(),
   };
 }
 
@@ -161,6 +206,21 @@ export async function fetchPaymentsFromSheet(): Promise<Payment[]> {
     console.error('Failed to fetch payments from Google Sheets:', error);
     return [];
   }
+}
+
+export async function fetchShootsFromSheet(): Promise<Shoot[]> {
+  const sheets = getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: SHOOT_READ_RANGE,
+  });
+
+  const rows = response.data.values ?? [];
+
+  return rows
+    .map((row) => rowToShoot(row as string[]))
+    .filter((shoot): shoot is Shoot => shoot !== null);
 }
 
 export async function fetchLeadsWithPayments(): Promise<Lead[]> {

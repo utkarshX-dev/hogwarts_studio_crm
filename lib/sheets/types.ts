@@ -48,6 +48,38 @@ export interface Lead {
 
 export type LeadFilterTab = 'all' | 'new_leads' | 'proposal_sent' | 'accepted';
 
+export interface Shoot {
+  id: string;
+  shootId: string;
+  leadId: string;
+  clientName: string;
+  contactNum: string;
+  emailId: string;
+  shootDate: string;
+  shootStartTime: string;
+  shootEndTime: string;
+  camera: string;
+  teleprompter: string;
+  totalHours: string;
+  assignedTo: string;
+  bts: string;
+  shootMemberName: string;
+  shootMemberEmail: string;
+  dataLink: string;
+  driveLinkUploaded: string;
+  createdAt: string;
+  testimonials: string;
+  recordTime: string;
+  studioTime: string;
+  extraCamera: string;
+  extraTeleprompter: string;
+  extraDurationHours: string;
+  additionalCost: string;
+  shootNotes: string;
+  editedByShootTeam: string;
+  searchText: string;
+}
+
 export const LEAD_STATUS_META: Record<
   string,
   { label: string; color: string; bg: string; border: string }

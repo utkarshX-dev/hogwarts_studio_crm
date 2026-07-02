@@ -27,11 +27,11 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2 } from 'lucide-react';
+import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2, Camera } from 'lucide-react';
 import { formatINR } from '@/lib/formatter';
 import { useAuth } from '@/lib/auth-context';
 import { MOCK_USERS } from '@/lib/auth';
-import type { Lead, LeadFilterTab } from '@/lib/sheets/types';
+import type { Lead, LeadFilterTab, Shoot } from '@/lib/sheets/types';
 import {
   canSendPaymentLink,
   filterSalesLeads,
@@ -52,6 +52,8 @@ import { cn } from '@/lib/utils';
 
 const PROPOSAL_WEBHOOK_URL =
   'https://hogwartsautomation.app.n8n.cloud/webhook/send-proposal';
+const SCHEDULE_SHOOT_WEBHOOK_URL =
+  'https://hogwartsautomation.app.n8n.cloud/webhook/schedule-shoot';
 
 const DEFAULT_ASSIGNED_TO = MOCK_USERS.manager.name;
 
@@ -64,6 +66,52 @@ const FILTER_TABS: { value: LeadFilterTab; label: string }[] = [
 
 interface SalesDashboardProps {
   initialLeads: Lead[];
+  initialShoots: Shoot[];
+}
+
+const SHOOT_MEMBERS = [
+  { name: 'Mayank', email: 'mayank@hogwartsmedia.com' },
+  { name: 'Rahul', email: 'rahul@hogwartsmedia.com' },
+  { name: 'Priya', email: 'priya@hogwartsmedia.com' },
+];
+
+function isShootEligible(lead: Lead) {
+  return ['Payment Confirmed', 'Payment Verified'].includes(lead.status);
+}
+
+function isPaymentComplete(lead: Lead) {
+  const paymentStatus = lead.payment_status ?? lead.payment?.paymentStatus ?? '';
+  return isShootEligible(lead) || ['Payment Confirmed', 'Payment Verified'].includes(paymentStatus);
+}
+
+function dateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function buildMonthDays(month: Date) {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return day;
+  });
+}
+
+function calculateHours(start: string, end: string) {
+  if (!start || !end) return '';
+  const [startHour, startMinute] = start.split(':').map(Number);
+  const [endHour, endMinute] = end.split(':').map(Number);
+  if ([startHour, startMinute, endHour, endMinute].some((value) => Number.isNaN(value))) {
+    return '';
+  }
+  const diff = endHour * 60 + endMinute - (startHour * 60 + startMinute);
+  if (diff <= 0) return '';
+  return (diff / 60).toFixed(2).replace(/\.00$/, '');
 }
 
 function parseCost(value: string): number {
@@ -71,9 +119,111 @@ function parseCost(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
+function SalesCalendar({ shoots }: { shoots: Shoot[] }) {
+  const [month, setMonth] = useState(() => new Date());
+  const [selected, setSelected] = useState<Shoot | null>(null);
+  const days = useMemo(() => buildMonthDays(month), [month]);
+  const shootsByDate = useMemo(() => {
+    const grouped = new Map<string, Shoot[]>();
+    shoots.forEach((shoot) => {
+      grouped.set(shoot.shootDate, [...(grouped.get(shoot.shootDate) ?? []), shoot]);
+    });
+    return grouped;
+  }, [shoots]);
+
+  return (
+    <>
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="text-base">
+            {month.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+            >
+              Previous
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setMonth(new Date())}>
+              Today
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+            >
+              Next
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-7 border border-border rounded-md overflow-hidden">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+              <div key={day} className="bg-secondary px-2 py-2 text-xs font-medium text-muted-foreground">
+                {day}
+              </div>
+            ))}
+            {days.map((day) => {
+              const key = dateKey(day);
+              const items = shootsByDate.get(key) ?? [];
+              const muted = day.getMonth() !== month.getMonth();
+              return (
+                <div key={key} className="min-h-[110px] border-t border-border p-2">
+                  <div className={cn('text-xs font-medium mb-1', muted && 'text-muted-foreground')}>
+                    {day.getDate()}
+                  </div>
+                  <div className="space-y-1">
+                    {items.map((shoot) => (
+                      <button
+                        type="button"
+                        key={shoot.id}
+                        onClick={() => setSelected(shoot)}
+                        className="w-full rounded bg-blue-500/15 border border-blue-500/30 px-2 py-1 text-left text-[11px] text-blue-600 hover:bg-blue-500/20"
+                      >
+                        <span className="block truncate font-medium">{shoot.clientName}</span>
+                        <span className="block truncate">{shoot.shootStartTime || '-'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
+        <DialogContent className="sm:max-w-lg">
+          {selected && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selected.clientName}</DialogTitle>
+                <DialogDescription>Scheduled shoot details</DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-muted-foreground">Contact:</span> {selected.contactNum || '-'}</div>
+                <div><span className="text-muted-foreground">Email:</span> {selected.emailId || '-'}</div>
+                <div><span className="text-muted-foreground">Date:</span> {selected.shootDate || '-'}</div>
+                <div><span className="text-muted-foreground">Time:</span> {selected.shootStartTime} - {selected.shootEndTime}</div>
+                <div><span className="text-muted-foreground">Camera:</span> {selected.camera || '1'}</div>
+                <div><span className="text-muted-foreground">Teleprompter:</span> {selected.teleprompter || 'No'}</div>
+                <div><span className="text-muted-foreground">BTS:</span> {selected.bts || 'No'}</div>
+                <div><span className="text-muted-foreground">Member:</span> {selected.shootMemberName || '-'}</div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+export function SalesDashboard({ initialLeads, initialShoots }: SalesDashboardProps) {
   const { user } = useAuth();
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
+  const [shoots, setShoots] = useState<Shoot[]>(initialShoots);
   const [refreshing, setRefreshing] = useState(false);
   const [creatingLead, setCreatingLead] = useState(false);
   const [newLeadService, setNewLeadService] = useState('podcast');
@@ -93,6 +243,21 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
   const [paymentLead, setPaymentLead] = useState<Lead | null>(null);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
   const [verifyingLeadId, setVerifyingLeadId] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleLead, setScheduleLead] = useState<Lead | null>(null);
+  const [schedulingShoot, setSchedulingShoot] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({
+    shootDate: '',
+    shootStartTime: '',
+    shootEndTime: '',
+    camera: '1',
+    teleprompter: 'No',
+    bts: 'No',
+    recordTime: '',
+    studioTime: '',
+    shootMemberName: SHOOT_MEMBERS[0].name,
+    shootMemberEmail: SHOOT_MEMBERS[0].email,
+  });
 
   const refreshLeads = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -115,12 +280,44 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     }
   }, []);
 
+  const refreshShoots = useCallback(async (silent = false) => {
+    try {
+      const response = await fetch('/api/shoots', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to refresh shoots');
+      }
+      setShoots(data.shoots ?? []);
+    } catch (error) {
+      if (!silent) {
+        toast.error('Failed to refresh shoots', {
+          description: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(() => {
       refreshLeads(true);
+      refreshShoots(true);
     }, 30000);
     return () => clearInterval(interval);
-  }, [refreshLeads]);
+  }, [refreshLeads, refreshShoots]);
+
+  const shootsByLeadId = useMemo(() => {
+    const map = new Map<string, Shoot>();
+    shoots.forEach((shoot) => {
+      if (shoot.leadId) map.set(shoot.leadId, shoot);
+      if (shoot.shootId) map.set(shoot.shootId, shoot);
+    });
+    return map;
+  }, [shoots]);
+
+  const totalHours = useMemo(
+    () => calculateHours(scheduleForm.shootStartTime, scheduleForm.shootEndTime),
+    [scheduleForm.shootStartTime, scheduleForm.shootEndTime]
+  );
 
   const salesLeads = useMemo(() => {
     return filterSalesLeads(leads, user?.name, user?.role);
@@ -147,6 +344,76 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
       cost: lead.cost,
     });
     setProposalOpen(true);
+  };
+
+  const openScheduleModal = (lead: Lead) => {
+    setScheduleLead(lead);
+    setScheduleForm({
+      shootDate: '',
+      shootStartTime: '',
+      shootEndTime: '',
+      camera: '1',
+      teleprompter: 'No',
+      bts: 'No',
+      recordTime: '',
+      studioTime: '',
+      shootMemberName: SHOOT_MEMBERS[0].name,
+      shootMemberEmail: SHOOT_MEMBERS[0].email,
+    });
+    setScheduleOpen(true);
+  };
+
+  const handleScheduleMemberChange = (name: string) => {
+    const member = SHOOT_MEMBERS.find((item) => item.name === name) ?? SHOOT_MEMBERS[0];
+    setScheduleForm((prev) => ({
+      ...prev,
+      shootMemberName: member.name,
+      shootMemberEmail: member.email,
+    }));
+  };
+
+  const handleScheduleShoot = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!scheduleLead) return;
+
+    setSchedulingShoot(true);
+    try {
+      const response = await fetch(SCHEDULE_SHOOT_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead_id: scheduleLead.leadId,
+          client_name: scheduleLead.name,
+          contact_num: scheduleLead.phoneNumber,
+          email_id: scheduleLead.clientEmail,
+          shoot_date: scheduleForm.shootDate,
+          shoot_start_time: scheduleForm.shootStartTime,
+          shoot_end_time: scheduleForm.shootEndTime,
+          total_hours: totalHours,
+          camera: scheduleForm.camera,
+          teleprompter: scheduleForm.teleprompter,
+          bts: scheduleForm.bts,
+          record_time: scheduleForm.recordTime,
+          studio_time: scheduleForm.studioTime,
+          assigned_to: scheduleLead.assignedTo,
+          shoot_member_name: scheduleForm.shootMemberName,
+          shoot_member_email: scheduleForm.shootMemberEmail,
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to schedule shoot');
+
+      setScheduleOpen(false);
+      setScheduleLead(null);
+      toast.success('Shoot scheduled!');
+      await Promise.all([refreshLeads(true), refreshShoots(true)]);
+    } catch (error) {
+      toast.error('Failed to schedule shoot', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setSchedulingShoot(false);
+    }
   };
 
   const handleSendProposal = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -422,6 +689,34 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     );
   };
 
+  const renderScheduleAction = (lead: Lead) => {
+    const existingShoot = shootsByLeadId.get(lead.leadId);
+
+    if (existingShoot) {
+      return (
+        <Button variant="outline" size="sm" disabled className="text-muted-foreground">
+          Shoot Scheduled
+        </Button>
+      );
+    }
+
+    if (!isPaymentComplete(lead)) return null;
+
+    return (
+      <Button
+        size="sm"
+        className="bg-blue-600 text-white hover:bg-blue-700"
+        onClick={(e) => {
+          e.stopPropagation();
+          openScheduleModal(lead);
+        }}
+      >
+        <Camera className="mr-1 h-3 w-3" />
+        Schedule Shoot
+      </Button>
+    );
+  };
+
   const renderStatusCell = (lead: Lead) => (
     <div className="flex flex-col gap-1.5">
       <LeadStatusBadge status={lead.status} />
@@ -436,6 +731,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
     <div className="flex flex-col gap-1.5 items-start">
       {renderProposalAction(lead)}
       {renderPaymentAction(lead)}
+      {renderScheduleAction(lead)}
     </div>
   );
 
@@ -528,6 +824,7 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
           <TabsTrigger value="leads">Leads</TabsTrigger>
           <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
           <TabsTrigger value="payments">Payments</TabsTrigger>
+          <TabsTrigger value="calendar">Calendar</TabsTrigger>
         </TabsList>
 
         <TabsContent value="leads" className="mt-4 space-y-4">
@@ -656,6 +953,10 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="calendar" className="mt-4">
+          <SalesCalendar shoots={shoots} />
+        </TabsContent>
       </Tabs>
 
       <Dialog open={proposalOpen} onOpenChange={setProposalOpen}>
@@ -756,6 +1057,180 @@ export function SalesDashboard({ initialLeads }: SalesDashboardProps) {
               Send Payment Link
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Schedule Shoot</DialogTitle>
+            <DialogDescription>Send shoot details to the production team.</DialogDescription>
+          </DialogHeader>
+          {scheduleLead && (
+            <form onSubmit={handleScheduleShoot} className="space-y-5">
+              <div className="rounded-md border border-border p-3">
+                <p className="text-sm font-medium mb-3">Client Details</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Client Name</p>
+                    <p className="font-medium">{scheduleLead.name || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Contact Number</p>
+                    <p>{scheduleLead.phoneNumber || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Email ID</p>
+                    <p className="truncate">{scheduleLead.clientEmail || '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="shootDate">Shoot Date</Label>
+                  <Input
+                    id="shootDate"
+                    type="date"
+                    required
+                    value={scheduleForm.shootDate}
+                    onChange={(e) =>
+                      setScheduleForm((prev) => ({ ...prev, shootDate: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="camera">Camera Count</Label>
+                  <Input
+                    id="camera"
+                    type="number"
+                    min="1"
+                    required
+                    value={scheduleForm.camera}
+                    onChange={(e) =>
+                      setScheduleForm((prev) => ({ ...prev, camera: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shootStartTime">Shoot Start Time</Label>
+                  <Input
+                    id="shootStartTime"
+                    type="time"
+                    required
+                    value={scheduleForm.shootStartTime}
+                    onChange={(e) =>
+                      setScheduleForm((prev) => ({ ...prev, shootStartTime: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shootEndTime">Shoot End Time</Label>
+                  <Input
+                    id="shootEndTime"
+                    type="time"
+                    required
+                    value={scheduleForm.shootEndTime}
+                    onChange={(e) =>
+                      setScheduleForm((prev) => ({ ...prev, shootEndTime: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="totalHours">Total Hours</Label>
+                  <Input id="totalHours" value={totalHours} readOnly className="bg-muted" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="teleprompter">Teleprompter</Label>
+                  <Select
+                    value={scheduleForm.teleprompter}
+                    onValueChange={(value) =>
+                      setScheduleForm((prev) => ({ ...prev, teleprompter: value }))
+                    }
+                  >
+                    <SelectTrigger id="teleprompter"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="No">No</SelectItem>
+                      <SelectItem value="Yes">Yes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bts">BTS Required</Label>
+                  <Select
+                    value={scheduleForm.bts}
+                    onValueChange={(value) =>
+                      setScheduleForm((prev) => ({ ...prev, bts: value }))
+                    }
+                  >
+                    <SelectTrigger id="bts"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="No">No</SelectItem>
+                      <SelectItem value="Yes">Yes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="recordTime">Record Time</Label>
+                  <Input
+                    id="recordTime"
+                    value={scheduleForm.recordTime}
+                    onChange={(e) =>
+                      setScheduleForm((prev) => ({ ...prev, recordTime: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="studioTime">Studio Time</Label>
+                  <Input
+                    id="studioTime"
+                    value={scheduleForm.studioTime}
+                    onChange={(e) =>
+                      setScheduleForm((prev) => ({ ...prev, studioTime: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shootMember">Shoot Member</Label>
+                  <Select
+                    value={scheduleForm.shootMemberName}
+                    onValueChange={handleScheduleMemberChange}
+                  >
+                    <SelectTrigger id="shootMember"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {SHOOT_MEMBERS.map((member) => (
+                        <SelectItem key={member.name} value={member.name}>
+                          {member.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shootMemberEmail">Shoot Member Email</Label>
+                  <Input
+                    id="shootMemberEmail"
+                    type="email"
+                    required
+                    value={scheduleForm.shootMemberEmail}
+                    onChange={(e) =>
+                      setScheduleForm((prev) => ({ ...prev, shootMemberEmail: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setScheduleOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={schedulingShoot || !totalHours}>
+                  <Camera className="mr-1.5 h-4 w-4" />
+                  Send to Shoot Team
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 
