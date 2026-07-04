@@ -1,6 +1,6 @@
 import { SalesDashboard } from '@/components/sales/SalesDashboard';
-import { fetchLeadsWithPayments, fetchShootsFromSheet } from '@/lib/google/sheets';
-import type { Lead, Shoot } from '@/lib/sheets/types';
+import { fetchEditingFromSheet, fetchLeadsWithPayments, fetchShootsFromSheet } from '@/lib/google/sheets';
+import type { EditingProject, Lead, Shoot } from '@/lib/sheets/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,11 +22,27 @@ async function getInitialShoots(): Promise<Shoot[]> {
   }
 }
 
+async function getInitialEditing(): Promise<EditingProject[]> {
+  try {
+    return await fetchEditingFromSheet();
+  } catch (error) {
+    console.error('Failed to fetch initial editing rows:', error);
+    return [];
+  }
+}
+
 export default async function SalesPage() {
-  const [initialLeads, initialShoots] = await Promise.all([
+  const [initialLeads, initialShoots, initialEditing] = await Promise.all([
     getInitialLeads(),
     getInitialShoots(),
+    getInitialEditing(),
   ]);
 
-  return <SalesDashboard initialLeads={initialLeads} initialShoots={initialShoots} />;
+  return (
+    <SalesDashboard
+      initialLeads={initialLeads}
+      initialShoots={initialShoots}
+      initialEditing={initialEditing}
+    />
+  );
 }

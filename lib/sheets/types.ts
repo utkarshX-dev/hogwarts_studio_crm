@@ -80,6 +80,43 @@ export interface Shoot {
   searchText: string;
 }
 
+export interface EditingProject {
+  id: string;
+  editId: string;
+  shootId: string;
+  leadId: string;
+  clientName: string;
+  month: string;
+  editStartDate: string;
+  editDeliveryDate: string;
+  podcastDraft: string;
+  podcastEdit: string;
+  longFormatVideo: string;
+  reelDraft: string;
+  reel: string;
+  teaserDemo: string;
+  teaser: string;
+  thumbnail: string;
+  dataLink: string;
+  status: string;
+  totalService: string;
+  emailId: string;
+  handoverToClient: string;
+  editorName: string;
+  editorEmail: string;
+  serviceType: string;
+  revisionCount: number;
+  maxFreeRevisions: number;
+  extraRevisionApproved: boolean;
+  extraRevisionCost: string;
+  currentDraftLink: string;
+  assignedAt: string;
+  deadlineAt: string;
+  deadlineNotified: string;
+  finalDelivered: boolean;
+  searchText: string;
+}
+
 export const LEAD_STATUS_META: Record<
   string,
   { label: string; color: string; bg: string; border: string }

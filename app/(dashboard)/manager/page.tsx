@@ -8,6 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -22,9 +25,10 @@ import { formatINR, formatDate, titleCase } from '@/lib/formatter';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { useAuth } from '@/lib/auth-context';
 import type { Project, ProjectStatus } from '@/lib/types';
-import type { Shoot } from '@/lib/sheets/types';
+import type { EditingProject, Lead, Shoot } from '@/lib/sheets/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { EDITORS as EDITING_EDITORS, findAssignedSalespersonEmail, findClientEmail, isExtraRevisionNeeded, postWebhook } from '@/lib/editing';
 
 export default function ManagerPage() {
   const { user } = useAuth();
@@ -36,24 +40,47 @@ export default function ManagerPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [shoots, setShoots] = useState<Shoot[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [editing, setEditing] = useState<EditingProject[]>([]);
+  const [assignShoot, setAssignShoot] = useState<Shoot | null>(null);
+  const [assigningEditor, setAssigningEditor] = useState(false);
+  const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
+  const [approvingExtraId, setApprovingExtraId] = useState<string | null>(null);
+  const [extraCosts, setExtraCosts] = useState<Record<string, string>>({});
+  const [assignForm, setAssignForm] = useState({
+    serviceType: '',
+    editorName: EDITING_EDITORS[0].name,
+    editorEmail: EDITING_EDITORS[0].email,
+    dataLink: '',
+    totalService: '1',
+  });
 
   useEffect(() => {
     let mounted = true;
 
-    async function fetchShoots() {
+    async function fetchDashboardData() {
       try {
-        const response = await fetch('/api/shoots', { cache: 'no-store' });
-        const data = await response.json();
-        if (mounted && response.ok) {
-          setShoots(data.shoots ?? []);
-        }
+        const [shootResponse, editingResponse, leadResponse] = await Promise.all([
+          fetch('/api/shoots', { cache: 'no-store' }),
+          fetch('/api/editing', { cache: 'no-store' }),
+          fetch('/api/clients', { cache: 'no-store' }),
+        ]);
+        const [shootData, editingData, leadData] = await Promise.all([
+          shootResponse.json(),
+          editingResponse.json(),
+          leadResponse.json(),
+        ]);
+        if (!mounted) return;
+        if (shootResponse.ok) setShoots(shootData.shoots ?? []);
+        if (editingResponse.ok) setEditing(editingData.editing ?? []);
+        if (leadResponse.ok) setLeads(leadData.leads ?? []);
       } catch (error) {
-        console.error('Failed to fetch footage review shoots:', error);
+        console.error('Failed to fetch manager dashboard data:', error);
       }
     }
 
-    fetchShoots();
-    const interval = setInterval(fetchShoots, 30000);
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 30000);
     return () => {
       mounted = false;
       clearInterval(interval);
@@ -63,6 +90,119 @@ export default function ManagerPage() {
   const openShoot = (p: Project) => { setShootProject(p); setShootOpen(true); };
   const openEditor = (p: Project) => { setEditorProject(p); setEditorOpen(true); };
   const openDetail = (p: Project) => { setDetailProject(p); setDetailOpen(true); };
+  const refreshEditing = async () => {
+    const response = await fetch('/api/editing', { cache: 'no-store' });
+    const data = await response.json();
+    if (response.ok) setEditing(data.editing ?? []);
+  };
+
+  const openAssignShoot = (shoot: Shoot) => {
+    setAssignShoot(shoot);
+    setAssignForm({
+      serviceType: '',
+      editorName: EDITING_EDITORS[0].name,
+      editorEmail: EDITING_EDITORS[0].email,
+      dataLink: shoot.dataLink,
+      totalService: '1',
+    });
+  };
+
+  const handleAssignEditor = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!assignShoot) return;
+
+    setAssigningEditor(true);
+    try {
+      await postWebhook('/assign-editor', {
+        shoot_id: assignShoot.shootId,
+        lead_id: assignShoot.leadId,
+        client_name: assignShoot.clientName,
+        email_id: assignShoot.emailId,
+        client_email: assignShoot.emailId,
+        data_link: assignForm.dataLink,
+        service_type: assignForm.serviceType,
+        editor_name: assignForm.editorName,
+        editor_email: assignForm.editorEmail,
+        total_service: assignForm.totalService,
+      });
+      toast.success('Editor assigned!');
+      setAssignShoot(null);
+      await refreshEditing();
+    } catch (error) {
+      toast.error('Failed to assign editor', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setAssigningEditor(false);
+    }
+  };
+
+  const handleEditorChange = (editorName: string) => {
+    const editor = EDITING_EDITORS.find((item) => item.name === editorName) ?? EDITING_EDITORS[0];
+    setAssignForm((prev) => ({
+      ...prev,
+      editorName: editor.name,
+      editorEmail: editor.email,
+    }));
+  };
+
+  const sendDraftToClient = async (edit: EditingProject) => {
+    const clientEmail = findClientEmail(edit, leads);
+    if (!clientEmail) {
+      toast.error('Client email is missing', {
+        description: 'Add the client email to the lead or editing row before sending the draft.',
+      });
+      return;
+    }
+
+    setSendingDraftId(edit.editId);
+    try {
+      await postWebhook('/send-draft-to-client', {
+        edit_id: edit.editId,
+        client_name: edit.clientName,
+        client_email: clientEmail,
+        draft_link: edit.currentDraftLink,
+        revision_count: edit.revisionCount,
+        assigned_salesperson_email: findAssignedSalespersonEmail(edit, leads),
+      });
+      toast.success('Draft sent to client!');
+      setEditing((prev) =>
+        prev.map((item) => (item.editId === edit.editId ? { ...item, status: 'Draft Sent' } : item))
+      );
+      await refreshEditing();
+    } catch (error) {
+      toast.error('Failed to send draft', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setSendingDraftId(null);
+    }
+  };
+
+  const approveExtraRevision = async (edit: EditingProject) => {
+    setApprovingExtraId(edit.editId);
+    try {
+      await postWebhook('/confirm-extra-revision', {
+        edit_id: edit.editId,
+        extra_revision_cost: extraCosts[edit.editId] ?? edit.extraRevisionCost,
+      });
+      toast.success('Extra revision approved, editor notified!');
+      setEditing((prev) =>
+        prev.map((item) =>
+          item.editId === edit.editId
+            ? { ...item, status: 'Extra Revision Approved', extraRevisionApproved: true }
+            : item
+        )
+      );
+      await refreshEditing();
+    } catch (error) {
+      toast.error('Failed to approve extra revision', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setApprovingExtraId(null);
+    }
+  };
 
   const advanceStatus = async (p: Project) => {
     const order = KANBAN_COLUMNS;
@@ -94,9 +234,19 @@ export default function ManagerPage() {
   const availableEditors = EDITORS.filter((e) => e.status === 'available').length;
   const scheduledShoots = PROJECTS.filter((p) => p.shoot?.status === 'scheduled').length;
   const footageReady = useMemo(
-    () => shoots.filter((shoot) => shoot.driveLinkUploaded.trim().toLowerCase() === 'true'),
-    [shoots]
+    () => {
+      const assignedShootIds = new Set(editing.map((edit) => edit.shootId).filter(Boolean));
+      return shoots.filter(
+        (shoot) =>
+          shoot.driveLinkUploaded.trim().toLowerCase() === 'true' &&
+          !assignedShootIds.has(shoot.shootId)
+      );
+    },
+    [editing, shoots]
   );
+  const inEditing = editing.filter((edit) => edit.status === 'Editing');
+  const draftReady = editing.filter((edit) => edit.status === 'Draft Ready');
+  const extraRevisionNeeded = editing.filter(isExtraRevisionNeeded);
 
   return (
     <div>
@@ -142,10 +292,99 @@ export default function ManagerPage() {
                     </p>
                   )}
                 </div>
-                <Button variant="outline" size="sm" asChild disabled={!shoot.dataLink}>
-                  <a href={shoot.dataLink} target="_blank" rel="noreferrer">
-                    View Footage <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" asChild disabled={!shoot.dataLink}>
+                    <a href={shoot.dataLink} target="_blank" rel="noreferrer">
+                      View Footage <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                  <Button size="sm" onClick={() => openAssignShoot(shoot)}>
+                    <Scissors className="mr-1.5 h-3.5 w-3.5" />
+                    Assign Editor
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">In Editing</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {inEditing.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No projects in editing.</p>
+          ) : (
+            inEditing.map((edit) => (
+              <div key={edit.editId} className="flex flex-col gap-2 rounded-md border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium">{edit.clientName}</p>
+                  <p className="text-xs text-muted-foreground">{edit.editorName} · {edit.serviceType || 'Edit'}</p>
+                </div>
+                <Badge variant="outline">Deadline {edit.deadlineAt || '-'}</Badge>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Verify Editor Work</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {draftReady.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No drafts ready for manager review.</p>
+          ) : (
+            draftReady.map((edit) => (
+              <div key={edit.editId} className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[1.2fr_1fr_1fr_auto] lg:items-center">
+                <div>
+                  <p className="text-sm font-medium">{edit.clientName}</p>
+                  <p className="text-xs text-muted-foreground">{edit.editorName} · {edit.serviceType || 'Edit'}</p>
+                </div>
+                <p className="text-xs text-muted-foreground">Deadline: {edit.deadlineAt || '-'}</p>
+                <Button variant="outline" size="sm" asChild disabled={!edit.currentDraftLink}>
+                  <a href={edit.currentDraftLink} target="_blank" rel="noreferrer">
+                    View Draft <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
                   </a>
+                </Button>
+                <Button size="sm" onClick={() => sendDraftToClient(edit)} disabled={sendingDraftId === edit.editId}>
+                  Send to Client
+                </Button>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base">Extra Revision Approval</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {extraRevisionNeeded.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No extra revision approvals pending.</p>
+          ) : (
+            extraRevisionNeeded.map((edit) => (
+              <div key={edit.editId} className="grid gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 lg:grid-cols-[1.2fr_1fr_180px_auto] lg:items-center">
+                <div>
+                  <p className="text-sm font-medium">{edit.clientName}</p>
+                  <p className="text-xs text-muted-foreground">{edit.editorName} · Revision {edit.revisionCount}/{edit.maxFreeRevisions}</p>
+                </div>
+                <Badge className="w-fit border-amber-500/40 bg-amber-500/15 text-amber-600">Sales confirmation needed</Badge>
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="Extra cost"
+                  value={extraCosts[edit.editId] ?? edit.extraRevisionCost}
+                  onChange={(event) =>
+                    setExtraCosts((prev) => ({ ...prev, [edit.editId]: event.target.value }))
+                  }
+                />
+                <Button size="sm" onClick={() => approveExtraRevision(edit)} disabled={approvingExtraId === edit.editId}>
+                  Approve Extra Revision
                 </Button>
               </div>
             ))
@@ -239,6 +478,80 @@ export default function ManagerPage() {
 
       <AssignShootDialog project={shootProject} open={shootOpen} onOpenChange={setShootOpen} />
       <AssignEditorDialog project={editorProject} open={editorOpen} onOpenChange={setEditorOpen} />
+
+      <Dialog open={Boolean(assignShoot)} onOpenChange={(open) => !open && setAssignShoot(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Assign Editor</DialogTitle>
+            <DialogDescription>Send footage to editing and notify the selected editor.</DialogDescription>
+          </DialogHeader>
+          {assignShoot && (
+            <form onSubmit={handleAssignEditor} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="assign-client">Client Name</Label>
+                  <Input id="assign-client" value={assignShoot.clientName} readOnly className="bg-muted" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="service-type">Service Type</Label>
+                  <Input
+                    id="service-type"
+                    required
+                    value={assignForm.serviceType}
+                    onChange={(event) => setAssignForm((prev) => ({ ...prev, serviceType: event.target.value }))}
+                    placeholder="Podcast / Reel / Long Format"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Editor</Label>
+                  <Select value={assignForm.editorName} onValueChange={handleEditorChange}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {EDITING_EDITORS.map((editor) => (
+                        <SelectItem key={editor.name} value={editor.name}>{editor.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="editor-email">Editor Email</Label>
+                  <Input
+                    id="editor-email"
+                    type="email"
+                    required
+                    value={assignForm.editorEmail}
+                    onChange={(event) => setAssignForm((prev) => ({ ...prev, editorEmail: event.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="data-link">Data Link</Label>
+                  <Input
+                    id="data-link"
+                    required
+                    value={assignForm.dataLink}
+                    onChange={(event) => setAssignForm((prev) => ({ ...prev, dataLink: event.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="total-service">Total Service</Label>
+                  <Input
+                    id="total-service"
+                    type="number"
+                    min="1"
+                    required
+                    value={assignForm.totalService}
+                    onChange={(event) => setAssignForm((prev) => ({ ...prev, totalService: event.target.value }))}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setAssignShoot(null)}>Cancel</Button>
+                <Button type="submit" disabled={assigningEditor}>Assign Editor</Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Project Detail Dialog */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>

@@ -7,6 +7,7 @@ import { LeadStatusBadge } from '@/components/shared/Badges';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   Dialog,
@@ -27,11 +28,11 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2, Camera } from 'lucide-react';
+import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2, Camera, ExternalLink } from 'lucide-react';
 import { formatINR } from '@/lib/formatter';
 import { useAuth } from '@/lib/auth-context';
 import { MOCK_USERS } from '@/lib/auth';
-import type { Lead, LeadFilterTab, Shoot } from '@/lib/sheets/types';
+import type { EditingProject, Lead, LeadFilterTab, Shoot } from '@/lib/sheets/types';
 import {
   canSendPaymentLink,
   filterSalesLeads,
@@ -49,6 +50,7 @@ import {
 } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { findAssignedSalespersonEmail, findClientEmail, isExtraRevisionNeeded, postWebhook } from '@/lib/editing';
 
 const PROPOSAL_WEBHOOK_URL =
   'https://hogwartsautomation.app.n8n.cloud/webhook/send-proposal';
@@ -67,6 +69,7 @@ const FILTER_TABS: { value: LeadFilterTab; label: string }[] = [
 interface SalesDashboardProps {
   initialLeads: Lead[];
   initialShoots: Shoot[];
+  initialEditing: EditingProject[];
 }
 
 const SHOOT_MEMBERS = [
@@ -220,10 +223,11 @@ function SalesCalendar({ shoots }: { shoots: Shoot[] }) {
   );
 }
 
-export function SalesDashboard({ initialLeads, initialShoots }: SalesDashboardProps) {
+export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: SalesDashboardProps) {
   const { user } = useAuth();
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [shoots, setShoots] = useState<Shoot[]>(initialShoots);
+  const [editing, setEditing] = useState<EditingProject[]>(initialEditing);
   const [refreshing, setRefreshing] = useState(false);
   const [creatingLead, setCreatingLead] = useState(false);
   const [newLeadService, setNewLeadService] = useState('podcast');
@@ -246,6 +250,11 @@ export function SalesDashboard({ initialLeads, initialShoots }: SalesDashboardPr
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleLead, setScheduleLead] = useState<Lead | null>(null);
   const [schedulingShoot, setSchedulingShoot] = useState(false);
+  const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
+  const [approvingExtraId, setApprovingExtraId] = useState<string | null>(null);
+  const [handoverId, setHandoverId] = useState<string | null>(null);
+  const [extraCosts, setExtraCosts] = useState<Record<string, string>>({});
+  const [handoverNotes, setHandoverNotes] = useState<Record<string, string>>({});
   const [scheduleForm, setScheduleForm] = useState({
     shootDate: '',
     shootStartTime: '',
@@ -297,13 +306,31 @@ export function SalesDashboard({ initialLeads, initialShoots }: SalesDashboardPr
     }
   }, []);
 
+  const refreshEditing = useCallback(async (silent = false) => {
+    try {
+      const response = await fetch('/api/editing', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to refresh editing rows');
+      }
+      setEditing(data.editing ?? []);
+    } catch (error) {
+      if (!silent) {
+        toast.error('Failed to refresh editing rows', {
+          description: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(() => {
       refreshLeads(true);
       refreshShoots(true);
+      refreshEditing(true);
     }, 30000);
     return () => clearInterval(interval);
-  }, [refreshLeads, refreshShoots]);
+  }, [refreshEditing, refreshLeads, refreshShoots]);
 
   const shootsByLeadId = useMemo(() => {
     const map = new Map<string, Shoot>();
@@ -322,6 +349,18 @@ export function SalesDashboard({ initialLeads, initialShoots }: SalesDashboardPr
   const salesLeads = useMemo(() => {
     return filterSalesLeads(leads, user?.name, user?.role);
   }, [leads, user?.name, user?.role]);
+
+  const visibleEditing = useMemo(() => {
+    if (user?.role === 'manager' || user?.role === 'admin') return editing;
+    const leadIds = new Set(salesLeads.map((lead) => lead.leadId));
+    return editing.filter((edit) => leadIds.has(edit.leadId));
+  }, [editing, salesLeads, user?.role]);
+
+  const draftReadyEdits = visibleEditing.filter((edit) => edit.status === 'Draft Ready');
+  const deliveredEdits = visibleEditing.filter(
+    (edit) => edit.status === 'Delivered' && edit.finalDelivered
+  );
+  const extraRevisionNeeded = visibleEditing.filter(isExtraRevisionNeeded);
 
   const filteredLeads = useMemo(() => {
     switch (filterTab) {
@@ -689,6 +728,82 @@ export function SalesDashboard({ initialLeads, initialShoots }: SalesDashboardPr
     );
   };
 
+  const sendDraftToClient = async (edit: EditingProject) => {
+    const clientEmail = findClientEmail(edit, leads);
+    if (!clientEmail) {
+      toast.error('Client email is missing', {
+        description: 'Add the client email to the lead or editing row before sending the draft.',
+      });
+      return;
+    }
+
+    setSendingDraftId(edit.editId);
+    try {
+      await postWebhook('/send-draft-to-client', {
+        edit_id: edit.editId,
+        client_name: edit.clientName,
+        client_email: clientEmail,
+        draft_link: edit.currentDraftLink,
+        revision_count: edit.revisionCount,
+        assigned_salesperson_email: findAssignedSalespersonEmail(edit, leads, user?.email ?? ''),
+      });
+      toast.success('Draft sent to client!');
+      setEditing((prev) =>
+        prev.map((item) => (item.editId === edit.editId ? { ...item, status: 'Draft Sent' } : item))
+      );
+      await refreshEditing(true);
+    } catch (error) {
+      toast.error('Failed to send draft', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setSendingDraftId(null);
+    }
+  };
+
+  const approveExtraRevision = async (edit: EditingProject) => {
+    setApprovingExtraId(edit.editId);
+    try {
+      await postWebhook('/confirm-extra-revision', {
+        edit_id: edit.editId,
+        extra_revision_cost: extraCosts[edit.editId] ?? edit.extraRevisionCost,
+      });
+      toast.success('Extra revision approved, editor notified!');
+      setEditing((prev) =>
+        prev.map((item) =>
+          item.editId === edit.editId
+            ? { ...item, status: 'Extra Revision Approved', extraRevisionApproved: true }
+            : item
+        )
+      );
+      await refreshEditing(true);
+    } catch (error) {
+      toast.error('Failed to approve extra revision', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setApprovingExtraId(null);
+    }
+  };
+
+  const updateHandover = async (edit: EditingProject) => {
+    setHandoverId(edit.editId);
+    try {
+      await postWebhook('/update-handover', {
+        edit_id: edit.editId,
+        handover_to_client: handoverNotes[edit.editId] ?? edit.handoverToClient,
+      });
+      toast.success('Handover notes updated!');
+      await refreshEditing(true);
+    } catch (error) {
+      toast.error('Failed to update handover notes', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setHandoverId(null);
+    }
+  };
+
   const renderScheduleAction = (lead: Lead) => {
     const existingShoot = shootsByLeadId.get(lead.leadId);
 
@@ -825,6 +940,7 @@ export function SalesDashboard({ initialLeads, initialShoots }: SalesDashboardPr
           <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
           <TabsTrigger value="payments">Payments</TabsTrigger>
           <TabsTrigger value="calendar">Calendar</TabsTrigger>
+          <TabsTrigger value="verify">Verify Editor Work</TabsTrigger>
         </TabsList>
 
         <TabsContent value="leads" className="mt-4 space-y-4">
@@ -956,6 +1072,100 @@ export function SalesDashboard({ initialLeads, initialShoots }: SalesDashboardPr
 
         <TabsContent value="calendar" className="mt-4">
           <SalesCalendar shoots={shoots} />
+        </TabsContent>
+
+        <TabsContent value="verify" className="mt-4 space-y-4">
+          {extraRevisionNeeded.length > 0 && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardHeader>
+                <CardTitle className="text-base">Extra Revision Needed</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {extraRevisionNeeded.map((edit) => (
+                  <div key={edit.editId} className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[1fr_150px_180px_auto] lg:items-center">
+                    <div>
+                      <p className="text-sm font-medium">{edit.clientName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Revision {edit.revisionCount}/{edit.maxFreeRevisions} used
+                      </p>
+                    </div>
+                    <Badge className="w-fit border-amber-500/40 bg-amber-500/15 text-amber-600">Needs quote</Badge>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Extra cost"
+                      value={extraCosts[edit.editId] ?? edit.extraRevisionCost}
+                      onChange={(event) =>
+                        setExtraCosts((prev) => ({ ...prev, [edit.editId]: event.target.value }))
+                      }
+                    />
+                    <Button size="sm" onClick={() => approveExtraRevision(edit)} disabled={approvingExtraId === edit.editId}>
+                      Confirm Extra Revision
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Drafts Ready for Client</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {draftReadyEdits.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No editor drafts ready right now.</p>
+              ) : (
+                draftReadyEdits.map((edit) => (
+                  <div key={edit.editId} className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[1.2fr_1fr_1fr_auto] lg:items-center">
+                    <div>
+                      <p className="text-sm font-medium">{edit.clientName}</p>
+                      <p className="text-xs text-muted-foreground">{edit.editorName} · {edit.serviceType || 'Edit'}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Deadline: {edit.deadlineAt || '-'}</p>
+                    <Button variant="outline" size="sm" asChild disabled={!edit.currentDraftLink}>
+                      <a href={edit.currentDraftLink} target="_blank" rel="noreferrer">
+                        View Draft <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                      </a>
+                    </Button>
+                    <Button size="sm" onClick={() => sendDraftToClient(edit)} disabled={sendingDraftId === edit.editId}>
+                      Send to Client
+                    </Button>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Delivered Handover Notes</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {deliveredEdits.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No delivered projects awaiting handover notes.</p>
+              ) : (
+                deliveredEdits.map((edit) => (
+                  <div key={edit.editId} className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[1fr_2fr_auto] lg:items-center">
+                    <div>
+                      <p className="text-sm font-medium">{edit.clientName}</p>
+                      <p className="text-xs text-muted-foreground">{edit.serviceType || 'Delivered project'}</p>
+                    </div>
+                    <Input
+                      placeholder="Handover notes"
+                      value={handoverNotes[edit.editId] ?? edit.handoverToClient}
+                      onChange={(event) =>
+                        setHandoverNotes((prev) => ({ ...prev, [edit.editId]: event.target.value }))
+                      }
+                    />
+                    <Button size="sm" onClick={() => updateHandover(edit)} disabled={handoverId === edit.editId}>
+                      Save Handover
+                    </Button>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

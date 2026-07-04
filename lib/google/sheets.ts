@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import type { CreateLeadInput, Lead, Payment, Shoot } from '@/lib/sheets/types';
+import type { CreateLeadInput, EditingProject, Lead, Payment, Shoot } from '@/lib/sheets/types';
 
 const SPREADSHEET_ID =
   process.env.GOOGLE_SHEETS_SPREADSHEET_ID ??
@@ -8,10 +8,12 @@ const SPREADSHEET_ID =
 const CLIENTS_SHEET = 'Clients';
 const PAYMENTS_SHEET = 'Payments';
 const SHOOT_SHEET = 'Shoot';
+const EDITING_SHEET = 'Editing';
 const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:O`;
 const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:O`;
 const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
 const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
+const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AG`;
 
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -109,6 +111,65 @@ function rowToShoot(row: string[]): Shoot | null {
     shootNotes: row[25]?.trim() ?? '',
     editedByShootTeam: row[26]?.trim() ?? 'false',
     searchText: `${clientName} ${contactNum} ${leadId}`.toLowerCase(),
+  };
+}
+
+function parseNumber(value: string | undefined, fallback = 0): number {
+  const parsed = Number(String(value ?? '').trim());
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBoolean(value: string | undefined): boolean {
+  return String(value ?? '').trim().toLowerCase() === 'true';
+}
+
+function rowToEditingProject(row: string[]): EditingProject | null {
+  const editId = row[0]?.trim();
+  const shootId = row[1]?.trim();
+  const leadId = row[2]?.trim();
+
+  if (!editId && !shootId && !leadId) return null;
+
+  const id = editId || shootId || leadId;
+  const clientName = row[3]?.trim() ?? '';
+  const editorName = row[20]?.trim() ?? '';
+  const serviceType = row[22]?.trim() ?? '';
+
+  return {
+    id,
+    editId: editId || id,
+    shootId,
+    leadId,
+    clientName,
+    month: row[4]?.trim() ?? '',
+    editStartDate: row[5]?.trim() ?? '',
+    editDeliveryDate: row[6]?.trim() ?? '',
+    podcastDraft: row[7]?.trim() ?? '',
+    podcastEdit: row[8]?.trim() ?? '',
+    longFormatVideo: row[9]?.trim() ?? '',
+    reelDraft: row[10]?.trim() ?? '',
+    reel: row[11]?.trim() ?? '',
+    teaserDemo: row[12]?.trim() ?? '',
+    teaser: row[13]?.trim() ?? '',
+    thumbnail: row[14]?.trim() ?? '',
+    dataLink: row[15]?.trim() ?? '',
+    status: row[16]?.trim() ?? '',
+    totalService: row[17]?.trim() ?? '',
+    emailId: row[18]?.trim() ?? '',
+    handoverToClient: row[19]?.trim() ?? '',
+    editorName,
+    editorEmail: row[21]?.trim() ?? '',
+    serviceType,
+    revisionCount: parseNumber(row[23]),
+    maxFreeRevisions: parseNumber(row[24], 2),
+    extraRevisionApproved: parseBoolean(row[25]),
+    extraRevisionCost: row[26]?.trim() ?? '',
+    currentDraftLink: row[27]?.trim() ?? '',
+    assignedAt: row[28]?.trim() ?? '',
+    deadlineAt: row[29]?.trim() ?? '',
+    deadlineNotified: row[30]?.trim() ?? '',
+    finalDelivered: parseBoolean(row[31]),
+    searchText: `${clientName} ${editorName} ${serviceType} ${leadId}`.toLowerCase(),
   };
 }
 
@@ -221,6 +282,21 @@ export async function fetchShootsFromSheet(): Promise<Shoot[]> {
   return rows
     .map((row) => rowToShoot(row as string[]))
     .filter((shoot): shoot is Shoot => shoot !== null);
+}
+
+export async function fetchEditingFromSheet(): Promise<EditingProject[]> {
+  const sheets = getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: EDITING_READ_RANGE,
+  });
+
+  const rows = response.data.values ?? [];
+
+  return rows
+    .map((row) => rowToEditingProject(row as string[]))
+    .filter((project): project is EditingProject => project !== null);
 }
 
 export async function fetchLeadsWithPayments(): Promise<Lead[]> {

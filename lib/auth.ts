@@ -37,9 +37,9 @@ export const MOCK_USERS: Record<UserRole, Omit<User, 'role'>> = {
   },
   editor: {
     id: 'u003',
-    name: 'Siddharth Roy',
-    initials: 'SR',
-    email: 'siddharth@howgartsmedia.com',
+    name: 'Deepanshu',
+    initials: 'D',
+    email: 'deepanshu@hogwartsmedia.com',
     username: 'editor',
     redirectTo: '/editor',
   },
