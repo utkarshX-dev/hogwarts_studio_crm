@@ -191,6 +191,10 @@ function joinLeadsWithPayments(leads: Lead[], payments: Payment[]): Lead[] {
   });
 }
 
+function sortLeadsNewestFirst(leads: Lead[]): Lead[] {
+  return [...leads].sort((a, b) => b.serialNo - a.serialNo);
+}
+
 function getAuthClient() {
   const email =
     process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ??
@@ -305,7 +309,7 @@ export async function fetchLeadsWithPayments(): Promise<Lead[]> {
     fetchPaymentsFromSheet(),
   ]);
 
-  return joinLeadsWithPayments(leads, payments);
+  return sortLeadsNewestFirst(joinLeadsWithPayments(leads, payments));
 }
 
 export async function fetchClientsFromSheet(): Promise<Lead[]> {
