@@ -78,6 +78,54 @@ const SHOOT_MEMBERS = [
   { name: 'Priya', email: 'priya@hogwartsmedia.com' },
 ];
 
+const TIME_HOURS = Array.from({ length: 12 }, (_, index) => String(index + 1));
+const TIME_MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
+const TIME_PERIODS = ['AM', 'PM'] as const;
+
+type TimePeriod = (typeof TIME_PERIODS)[number];
+
+function parseTimeParts(value: string) {
+  if (!value) return { hour: '', minute: '', period: '' };
+  const [rawHour, rawMinute] = value.split(':').map(Number);
+  if (Number.isNaN(rawHour) || Number.isNaN(rawMinute)) {
+    return { hour: '', minute: '', period: '' };
+  }
+
+  const period: TimePeriod = rawHour >= 12 ? 'PM' : 'AM';
+  const hour = rawHour % 12 || 12;
+
+  return {
+    hour: String(hour),
+    minute: String(rawMinute).padStart(2, '0'),
+    period,
+  };
+}
+
+function buildTimeValue(hour: string, minute: string, period: string) {
+  if (!hour || !minute || !period) return '';
+  let nextHour = Number(hour);
+  const nextMinute = Number(minute);
+
+  if (
+    Number.isNaN(nextHour) ||
+    Number.isNaN(nextMinute) ||
+    nextHour < 1 ||
+    nextHour > 12 ||
+    nextMinute < 0 ||
+    nextMinute > 59
+  ) {
+    return '';
+  }
+
+  if (period === 'AM') {
+    nextHour = nextHour === 12 ? 0 : nextHour;
+  } else {
+    nextHour = nextHour === 12 ? 12 : nextHour + 12;
+  }
+
+  return `${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`;
+}
+
 function isShootEligible(lead: Lead) {
   return ['Payment Confirmed', 'Payment Verified'].includes(lead.status);
 }
@@ -120,6 +168,78 @@ function calculateHours(start: string, end: string) {
 function parseCost(value: string): number {
   const parsed = Number(String(value).replace(/[^\d.-]/g, ''));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function TimeOfDaySelect({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [parts, setParts] = useState(() => parseTimeParts(value));
+
+  useEffect(() => {
+    setParts(parseTimeParts(value));
+  }, [value]);
+
+  const handlePartChange = (part: 'hour' | 'minute' | 'period', nextValue: string) => {
+    const nextParts = { ...parts, [part]: nextValue };
+    setParts(nextParts);
+    const nextTimeValue = buildTimeValue(nextParts.hour, nextParts.minute, nextParts.period);
+    if (nextTimeValue) {
+      onChange(nextTimeValue);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-[1fr_1fr_88px] gap-2">
+      <Select value={parts.hour} onValueChange={(nextValue) => handlePartChange('hour', nextValue)}>
+        <SelectTrigger id={`${id}-hour`} aria-label="Hour">
+          <SelectValue placeholder="Hour" />
+        </SelectTrigger>
+        <SelectContent>
+          {TIME_HOURS.map((hour) => (
+            <SelectItem key={hour} value={hour}>
+              {hour}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={parts.minute}
+        onValueChange={(nextValue) => handlePartChange('minute', nextValue)}
+      >
+        <SelectTrigger id={`${id}-minute`} aria-label="Minute">
+          <SelectValue placeholder="Min" />
+        </SelectTrigger>
+        <SelectContent>
+          {TIME_MINUTES.map((minute) => (
+            <SelectItem key={minute} value={minute}>
+              {minute}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={parts.period}
+        onValueChange={(nextValue) => handlePartChange('period', nextValue)}
+      >
+        <SelectTrigger id={id} aria-label="AM or PM">
+          <SelectValue placeholder="AM/PM" />
+        </SelectTrigger>
+        <SelectContent>
+          {TIME_PERIODS.map((period) => (
+            <SelectItem key={period} value={period}>
+              {period}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
 
 function SalesCalendar({ shoots }: { shoots: Shoot[] }) {
@@ -1324,25 +1444,21 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="shootStartTime">Shoot Start Time</Label>
-                  <Input
+                  <TimeOfDaySelect
                     id="shootStartTime"
-                    type="time"
-                    required
                     value={scheduleForm.shootStartTime}
-                    onChange={(e) =>
-                      setScheduleForm((prev) => ({ ...prev, shootStartTime: e.target.value }))
+                    onChange={(value) =>
+                      setScheduleForm((prev) => ({ ...prev, shootStartTime: value }))
                     }
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="shootEndTime">Shoot End Time</Label>
-                  <Input
+                  <TimeOfDaySelect
                     id="shootEndTime"
-                    type="time"
-                    required
                     value={scheduleForm.shootEndTime}
-                    onChange={(e) =>
-                      setScheduleForm((prev) => ({ ...prev, shootEndTime: e.target.value }))
+                    onChange={(value) =>
+                      setScheduleForm((prev) => ({ ...prev, shootEndTime: value }))
                     }
                   />
                 </div>
