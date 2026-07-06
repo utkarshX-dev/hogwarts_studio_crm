@@ -3,23 +3,83 @@
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatCard } from '@/components/shared/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { formatINR, formatPercent } from '@/lib/formatter';
-import { REVENUE_DATA, SERVICE_DISTRIBUTION, STATUS_DISTRIBUTION, SALES_TREND, EDITORS } from '@/lib/mock-data';
+import { useRealtimeData } from '@/hooks/use-realtime-data';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
-import { TrendingUp, Users, Target, Award } from 'lucide-react';
+import { TrendingUp, Users, Target, Award, RefreshCw } from 'lucide-react';
 
-const tooltipStyle = { background: '#161B22', border: '1px solid #30363D', borderRadius: '6px', fontSize: '12px' };
+const tooltipStyle = { background: 'white', border: '1px solid #30363D', borderRadius: '6px', fontSize: '12px' };
 const labelStyle = { color: '#F0F6FC' };
 
 export default function AnalyticsPage() {
-  const totalRevenue = REVENUE_DATA.reduce((s, r) => s + r.revenue, 0);
-  const totalProjects = REVENUE_DATA.reduce((s, r) => s + r.projects, 0);
-  const avgProject = totalRevenue / totalProjects;
-  const conversionRate = (SALES_TREND.reduce((s, r) => s + r.converted, 0) / SALES_TREND.reduce((s, r) => s + r.leads, 0)) * 100;
-  const topEditor = EDITORS.sort((a, b) => b.completedProjects - a.completedProjects)[0];
+  const { analytics, loading, error, refresh } = useRealtimeData();
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Analytics" description="Revenue insights, service distribution, and performance metrics" />
+        <Card className="border-red-500/30 bg-red-500/10 p-6 text-center">
+          <p className="text-red-400 mb-4 font-medium">Failed to load real-time sheets data: {error}</p>
+          <Button onClick={refresh} variant="outline" className="border-red-500/40 hover:bg-red-500/20 gap-2">
+            <RefreshCw className="h-4 w-4" /> Retry Connection
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  if (loading || !analytics) {
+    return (
+      <div>
+        <PageHeader title="Analytics" description="Revenue insights, service distribution, and performance metrics" />
+        
+        {/* Stat Cards Skeleton */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i} className="animate-pulse bg-[#161B22]/50 border-[#30363D]">
+              <CardContent className="p-4 flex items-center justify-between">
+                <div className="space-y-2">
+                  <div className="h-3 w-20 bg-muted-foreground/20 rounded" />
+                  <div className="h-6 w-24 bg-muted-foreground/30 rounded" />
+                </div>
+                <div className="h-8 w-8 rounded bg-muted-foreground/20" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Charts Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          <Card className="animate-pulse bg-[#161B22]/50 border-[#30363D]">
+            <CardHeader><div className="h-4 w-32 bg-muted-foreground/20 rounded" /></CardHeader>
+            <CardContent><div className="h-[280px] bg-muted-foreground/10 rounded flex items-center justify-center text-xs text-muted-foreground">Loading Revenue Chart...</div></CardContent>
+          </Card>
+          <Card className="animate-pulse bg-[#161B22]/50 border-[#30363D]">
+            <CardHeader><div className="h-4 w-32 bg-muted-foreground/20 rounded" /></CardHeader>
+            <CardContent><div className="h-[280px] bg-muted-foreground/10 rounded flex items-center justify-center text-xs text-muted-foreground">Loading Service Distribution...</div></CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  const {
+    totalRevenue,
+    totalProjects,
+    avgProject,
+    conversionRate,
+    REVENUE_DATA,
+    SERVICE_DISTRIBUTION,
+    STATUS_DISTRIBUTION,
+    SALES_TREND,
+    EDITORS,
+  } = analytics;
+
+  const topEditor = EDITORS.length > 0 ? [...EDITORS].sort((a, b) => b.completedProjects - a.completedProjects)[0] : null;
 
   return (
     <div>
@@ -120,7 +180,7 @@ export default function AnalyticsPage() {
         <CardHeader><CardTitle className="text-base">Editor Performance</CardTitle></CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {EDITORS.sort((a, b) => b.completedProjects - a.completedProjects).map((e, i) => (
+            {[...EDITORS].sort((a, b) => b.completedProjects - a.completedProjects).map((e, i) => (
               <div key={e.id} className="flex items-center gap-3">
                 <span className="text-xs text-muted-foreground tabular-nums w-4">{i + 1}</span>
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary border border-border text-xs font-medium">{e.initials}</div>
@@ -129,7 +189,7 @@ export default function AnalyticsPage() {
                   <p className="text-xs text-muted-foreground">{e.completedProjects} completed · {e.activeProjects} active</p>
                 </div>
                 <div className="w-32 h-2 rounded-full bg-secondary overflow-hidden hidden sm:block">
-                  <div className="h-full rounded-full bg-[#3FB950]" style={{ width: `${(e.completedProjects / topEditor.completedProjects) * 100}%` }} />
+                  <div className="h-full rounded-full bg-[#3FB950]" style={{ width: `${(e.completedProjects / (topEditor?.completedProjects || 1)) * 100}%` }} />
                 </div>
                 <span className="text-sm font-medium tabular-nums w-8 text-right">{e.completedProjects}</span>
               </div>

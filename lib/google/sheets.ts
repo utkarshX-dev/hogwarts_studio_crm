@@ -260,6 +260,8 @@ export async function fetchPaymentsFromSheet(): Promise<Payment[]> {
 
     const rows = response.data.values ?? [];
 
+    console.log('Payments sheet data:', rows);
+
     return rows
       .map((row) => rowToPayment(row as string[]))
       .filter((payment): payment is Payment => payment !== null);
