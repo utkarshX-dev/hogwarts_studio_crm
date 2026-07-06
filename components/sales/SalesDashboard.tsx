@@ -78,11 +78,65 @@ const SHOOT_MEMBERS = [
   { name: 'Priya', email: 'priya@hogwartsmedia.com' },
 ];
 
+const DELIVERABLE_FIELDS = [
+  { key: 'podcastDraft', payloadKey: 'podcast_draft', label: 'Podcast Draft' },
+  { key: 'podcastEdit', payloadKey: 'podcast_edit', label: 'Podcast Edit' },
+  { key: 'reelDraft', payloadKey: 'reel_draft', label: 'Reel Draft' },
+  { key: 'reelEdit', payloadKey: 'reel_edit', label: 'Reel Edit' },
+  { key: 'longFormatVideo', payloadKey: 'long_format_video', label: 'Long Format Video' },
+  { key: 'teaserDemo', payloadKey: 'teaser_demo', label: 'Teaser Demo' },
+  { key: 'teaser', payloadKey: 'teaser', label: 'Teaser' },
+  { key: 'thumbnail', payloadKey: 'thumbnail', label: 'Thumbnail' },
+] as const;
+
 const TIME_HOURS = Array.from({ length: 12 }, (_, index) => String(index + 1));
 const TIME_MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
 const TIME_PERIODS = ['AM', 'PM'] as const;
 
 type TimePeriod = (typeof TIME_PERIODS)[number];
+type DeliverableKey = (typeof DELIVERABLE_FIELDS)[number]['key'];
+
+type ProposalForm = {
+  clientEmail: string;
+  cost: string;
+  notes: string;
+} & Record<DeliverableKey, string>;
+
+const DEFAULT_DELIVERABLES: Record<DeliverableKey, string> = {
+  podcastDraft: '0',
+  podcastEdit: '0',
+  reelDraft: '0',
+  reelEdit: '0',
+  longFormatVideo: '0',
+  teaserDemo: '0',
+  teaser: '0',
+  thumbnail: '0',
+};
+
+function normalizeQuantity(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return '0';
+  return String(Math.floor(parsed));
+}
+
+function totalDeliverables(values: Record<DeliverableKey, string>) {
+  return DELIVERABLE_FIELDS.reduce(
+    (sum, field) => sum + Number(normalizeQuantity(values[field.key])),
+    0
+  );
+}
+
+function salesDeliverableSummary(lead: Lead) {
+  const podcast = Number(lead.podcastDraft || 0) + Number(lead.podcastEdit || 0);
+  const reel = Number(lead.reelDraft || 0) + Number(lead.reelEdit || 0);
+  const thumbnail = Number(lead.thumbnail || 0);
+
+  return [
+    podcast > 0 ? `🎙${podcast}` : '',
+    reel > 0 ? `🎬${reel}` : '',
+    thumbnail > 0 ? `🖼${thumbnail}` : '',
+  ].filter(Boolean);
+}
 
 function parseTimeParts(value: string) {
   if (!value) return { hour: '', minute: '', period: '' };
@@ -358,10 +412,11 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [selected, setSelected] = useState<Lead | null>(null);
   const [filterTab, setFilterTab] = useState<LeadFilterTab>('all');
   const [submittingProposal, setSubmittingProposal] = useState(false);
-  const [proposalForm, setProposalForm] = useState({
+  const [proposalForm, setProposalForm] = useState<ProposalForm>({
     clientEmail: '',
-    servicePitched: '',
     cost: '',
+    notes: '',
+    ...DEFAULT_DELIVERABLES,
   });
   const [paymentLinkOpen, setPaymentLinkOpen] = useState(false);
   const [paymentLead, setPaymentLead] = useState<Lead | null>(null);
@@ -499,8 +554,16 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     setSelected(lead);
     setProposalForm({
       clientEmail: lead.clientEmail,
-      servicePitched: lead.servicePitched,
       cost: lead.cost,
+      podcastDraft: lead.podcastDraft || '0',
+      podcastEdit: lead.podcastEdit || '0',
+      reelDraft: lead.reelDraft || '0',
+      reelEdit: lead.reelEdit || '0',
+      longFormatVideo: lead.longFormatVideo || '0',
+      teaserDemo: lead.teaserDemo || '0',
+      teaser: lead.teaser || '0',
+      thumbnail: lead.thumbnail || '0',
+      notes: lead.serviceNotes || lead.servicePitched,
     });
     setProposalOpen(true);
   };
@@ -579,6 +642,14 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     e.preventDefault();
     if (!selected) return;
 
+    const deliverablesPayload = Object.fromEntries(
+      DELIVERABLE_FIELDS.map((field) => [
+        field.payloadKey,
+        normalizeQuantity(proposalForm[field.key]),
+      ])
+    );
+    const serviceNotes = proposalForm.notes.trim();
+
     setSubmittingProposal(true);
     try {
       const response = await fetch(PROPOSAL_WEBHOOK_URL, {
@@ -589,7 +660,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
           client_name: selected.name,
           client_email: proposalForm.clientEmail,
           client_phone: selected.phoneNumber,
-          service_pitched: proposalForm.servicePitched,
+          service_pitched: serviceNotes,
+          service_notes: serviceNotes,
+          ...deliverablesPayload,
           cost: proposalForm.cost,
           salesperson_name: selected.assignedTo,
         }),
@@ -955,6 +1028,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const renderStatusCell = (lead: Lead) => (
     <div className="flex flex-col gap-1.5">
       <LeadStatusBadge status={lead.status} />
+      {(lead.status === 'Proposal Sent' || lead.proposalSent.toLowerCase() === 'true') &&
+        salesDeliverableSummary(lead).length > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {salesDeliverableSummary(lead).join(' ')}
+          </span>
+        )}
       <div className="flex flex-wrap items-center gap-1.5">
         <PaymentStatusIndicator lead={lead} />
         {renderVerifyButton(lead)}
@@ -1290,7 +1369,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       </Tabs>
 
       <Dialog open={proposalOpen} onOpenChange={setProposalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Send Proposal</DialogTitle>
             <DialogDescription>
@@ -1315,17 +1394,42 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   }
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="service-pitched">Service Pitched</Label>
-                <Input
-                  id="service-pitched"
-                  required
-                  value={proposalForm.servicePitched}
-                  onChange={(e) =>
-                    setProposalForm((prev) => ({ ...prev, servicePitched: e.target.value }))
-                  }
-                />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="service-notes">Service Notes</Label>
+                  <Input
+                    id="service-notes"
+                    value={proposalForm.notes}
+                    onChange={(e) =>
+                      setProposalForm((prev) => ({ ...prev, notes: e.target.value }))
+                    }
+                    placeholder="e.g. Podcast for KKB, Reels for Instagram campaign..."
+                  />
+                </div>
               </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {DELIVERABLE_FIELDS.map((field) => (
+                  <div className="space-y-2" key={field.key}>
+                    <Label htmlFor={field.key}>{field.label}</Label>
+                    <Input
+                      id={field.key}
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={proposalForm[field.key]}
+                      onChange={(e) =>
+                        setProposalForm((prev) => ({
+                          ...prev,
+                          [field.key]: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm font-medium">
+                Total deliverables: {totalDeliverables(proposalForm)}
+              </p>
               <div className="space-y-2">
                 <Label htmlFor="cost">Cost in ₹</Label>
                 <Input

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar, Camera, CheckCircle, Clock, ExternalLink, Upload } from 'lucide-react';
@@ -42,6 +43,11 @@ interface PostShootForm {
   testimonials: string;
   shootNotes: string;
 }
+
+const DURATION_HOURS = Array.from({ length: 25 }, (_, index) => String(index));
+const DURATION_MINUTES = Array.from({ length: 60 }, (_, index) =>
+  String(index).padStart(2, '0')
+);
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -87,6 +93,102 @@ function dateKey(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function normalizeDurationParts(hours: number, minutes: number) {
+  const totalMinutes = Math.max(0, Math.round(hours * 60 + minutes));
+  const nextHours = Math.floor(totalMinutes / 60);
+  const nextMinutes = totalMinutes % 60;
+  const maxHours = Number(DURATION_HOURS[DURATION_HOURS.length - 1]);
+
+  return {
+    hours: String(Math.min(nextHours, maxHours)),
+    minutes: String(nextMinutes).padStart(2, '0'),
+  };
+}
+
+function parseDurationParts(value: string) {
+  const trimmedValue = value.trim().toLowerCase();
+  if (!trimmedValue) return { hours: '', minutes: '' };
+
+  const clockMatch = trimmedValue.match(/^(\d{1,2}):([0-5]?\d)$/);
+  if (clockMatch) {
+    return normalizeDurationParts(Number(clockMatch[1]), Number(clockMatch[2]));
+  }
+
+  const hourMatch = trimmedValue.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)/);
+  const minuteMatch = trimmedValue.match(/(\d+)\s*(?:m|min|mins|minute|minutes)/);
+  if (hourMatch || minuteMatch) {
+    return normalizeDurationParts(
+      hourMatch ? Number(hourMatch[1]) : 0,
+      minuteMatch ? Number(minuteMatch[1]) : 0
+    );
+  }
+
+  const decimalHours = Number(trimmedValue);
+  if (Number.isFinite(decimalHours)) {
+    return normalizeDurationParts(decimalHours, 0);
+  }
+
+  return { hours: '', minutes: '' };
+}
+
+function buildDurationValue(hours: string, minutes: string) {
+  if (!hours || !minutes) return '';
+  return `${Number(hours)}:${minutes}`;
+}
+
+function DurationSelect({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const parts = parseDurationParts(value);
+
+  const handlePartChange = (part: 'hours' | 'minutes', nextValue: string) => {
+    const nextParts = {
+      hours: part === 'hours' ? nextValue : parts.hours || '0',
+      minutes: part === 'minutes' ? nextValue : parts.minutes || '00',
+    };
+
+    onChange(buildDurationValue(nextParts.hours, nextParts.minutes));
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Select value={parts.hours} onValueChange={(nextValue) => handlePartChange('hours', nextValue)}>
+        <SelectTrigger id={`${id}-hours`} aria-label="Hours">
+          <SelectValue placeholder="Hours" />
+        </SelectTrigger>
+        <SelectContent>
+          {DURATION_HOURS.map((hour) => (
+            <SelectItem key={hour} value={hour}>
+              {hour} hr
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={parts.minutes}
+        onValueChange={(nextValue) => handlePartChange('minutes', nextValue)}
+      >
+        <SelectTrigger id={`${id}-minutes`} aria-label="Minutes">
+          <SelectValue placeholder="Minutes" />
+        </SelectTrigger>
+        <SelectContent>
+          {DURATION_MINUTES.map((minute) => (
+            <SelectItem key={minute} value={minute}>
+              {minute} min
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
 
 function UploadStatusBadge({ shoot }: { shoot: Shoot }) {
@@ -550,21 +652,21 @@ export function ShootDashboard({ initialShoots }: ShootDashboardProps) {
             ))}
             <div className="space-y-2">
               <Label htmlFor="recordTime">Record Time</Label>
-              <Input
+              <DurationSelect
                 id="recordTime"
                 value={postShootForm.recordTime}
-                onChange={(event) =>
-                  setPostShootForm((prev) => ({ ...prev, recordTime: event.target.value }))
+                onChange={(value) =>
+                  setPostShootForm((prev) => ({ ...prev, recordTime: value }))
                 }
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="studioTime">Studio Time</Label>
-              <Input
+              <DurationSelect
                 id="studioTime"
                 value={postShootForm.studioTime}
-                onChange={(event) =>
-                  setPostShootForm((prev) => ({ ...prev, studioTime: event.target.value }))
+                onChange={(value) =>
+                  setPostShootForm((prev) => ({ ...prev, studioTime: value }))
                 }
               />
             </div>

@@ -9,8 +9,8 @@ const CLIENTS_SHEET = 'Clients';
 const PAYMENTS_SHEET = 'Payments';
 const SHOOT_SHEET = 'Shoot';
 const EDITING_SHEET = 'Editing';
-const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:O`;
-const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:O`;
+const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:X`;
+const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:X`;
 const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
 const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
 const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AG`;
@@ -46,6 +46,15 @@ function rowToLead(row: string[], index: number): Lead | null {
     proposalSent: row[12]?.trim() ?? '',
     proposalAccepted: parseProposalAccepted(row[13]),
     proposalSentAt: row[14]?.trim() ?? '',
+    podcastDraft: row[15]?.trim() ?? '',
+    podcastEdit: row[16]?.trim() ?? '',
+    reelDraft: row[17]?.trim() ?? '',
+    reelEdit: row[18]?.trim() ?? '',
+    longFormatVideo: row[19]?.trim() ?? '',
+    teaserDemo: row[20]?.trim() ?? '',
+    teaser: row[21]?.trim() ?? '',
+    thumbnail: row[22]?.trim() ?? '',
+    serviceNotes: row[23]?.trim() ?? '',
     serialNo: index + 1,
     searchText: `${name} ${phoneNumber}`.toLowerCase(),
     payment: null,
@@ -250,6 +259,15 @@ function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
     'false',
     'false',
     '',
+    input.podcastDraft?.trim() ?? '',
+    input.podcastEdit?.trim() ?? '',
+    input.reelDraft?.trim() ?? '',
+    input.reelEdit?.trim() ?? '',
+    input.longFormatVideo?.trim() ?? '',
+    input.teaserDemo?.trim() ?? '',
+    input.teaser?.trim() ?? '',
+    input.thumbnail?.trim() ?? '',
+    input.serviceNotes?.trim() ?? '',
   ];
 }
 
@@ -368,6 +386,15 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
     proposalSent: 'false',
     proposalAccepted: false,
     proposalSentAt: '',
+    podcastDraft: input.podcastDraft?.trim() ?? '',
+    podcastEdit: input.podcastEdit?.trim() ?? '',
+    reelDraft: input.reelDraft?.trim() ?? '',
+    reelEdit: input.reelEdit?.trim() ?? '',
+    longFormatVideo: input.longFormatVideo?.trim() ?? '',
+    teaserDemo: input.teaserDemo?.trim() ?? '',
+    teaser: input.teaser?.trim() ?? '',
+    thumbnail: input.thumbnail?.trim() ?? '',
+    serviceNotes: input.serviceNotes?.trim() ?? '',
     serialNo: existingLeads.length + 1,
     searchText: `${input.name.trim()} ${input.phoneNumber.trim()}`.toLowerCase(),
     payment: null,

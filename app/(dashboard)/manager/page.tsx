@@ -30,6 +30,150 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { EDITORS as EDITING_EDITORS, findAssignedSalespersonEmail, findClientEmail, isExtraRevisionNeeded, postWebhook } from '@/lib/editing';
 
+const EDITOR_WORKLOAD_URL = 'https://hogwartsautomation.app.n8n.cloud/webhook/editor-workload';
+
+const DELIVERABLE_FIELDS = [
+  { key: 'podcastDraft', payloadKey: 'podcast_draft', label: 'Podcast Draft' },
+  { key: 'podcastEdit', payloadKey: 'podcast_edit', label: 'Podcast Edit' },
+  { key: 'reelDraft', payloadKey: 'reel_draft', label: 'Reel Draft' },
+  { key: 'reelEdit', payloadKey: 'reel_edit', label: 'Reel Edit' },
+  { key: 'longFormatVideo', payloadKey: 'long_format_video', label: 'Long Format Video' },
+  { key: 'teaserDemo', payloadKey: 'teaser_demo', label: 'Teaser Demo' },
+  { key: 'teaser', payloadKey: 'teaser', label: 'Teaser' },
+  { key: 'thumbnail', payloadKey: 'thumbnail', label: 'Thumbnail' },
+] as const;
+
+type DeliverableKey = (typeof DELIVERABLE_FIELDS)[number]['key'];
+
+type DeliverableValues = Record<DeliverableKey, string>;
+
+type EditorWorkload = {
+  editorName: string;
+  activeProjects: number;
+  totalDeliverables: number;
+} & Partial<DeliverableValues>;
+
+const DEFAULT_DELIVERABLES: DeliverableValues = {
+  podcastDraft: '0',
+  podcastEdit: '0',
+  reelDraft: '0',
+  reelEdit: '0',
+  longFormatVideo: '0',
+  teaserDemo: '0',
+  teaser: '0',
+  thumbnail: '0',
+};
+
+function normalizeQuantity(value: unknown) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed) || parsed < 0) return '0';
+  return String(Math.floor(parsed));
+}
+
+function totalDeliverables(values: DeliverableValues) {
+  return DELIVERABLE_FIELDS.reduce(
+    (sum, field) => sum + Number(normalizeQuantity(values[field.key])),
+    0
+  );
+}
+
+function leadDeliverables(lead: Lead | undefined): DeliverableValues {
+  if (!lead) return { ...DEFAULT_DELIVERABLES };
+  return {
+    podcastDraft: normalizeQuantity(lead.podcastDraft),
+    podcastEdit: normalizeQuantity(lead.podcastEdit),
+    reelDraft: normalizeQuantity(lead.reelDraft),
+    reelEdit: normalizeQuantity(lead.reelEdit),
+    longFormatVideo: normalizeQuantity(lead.longFormatVideo),
+    teaserDemo: normalizeQuantity(lead.teaserDemo),
+    teaser: normalizeQuantity(lead.teaser),
+    thumbnail: normalizeQuantity(lead.thumbnail),
+  };
+}
+
+function workloadLevel(total: number) {
+  if (total <= 0) return 'Free';
+  if (total <= 5) return 'Low';
+  if (total <= 15) return 'Medium';
+  return 'High';
+}
+
+function workloadBadgeClass(level: string) {
+  if (level === 'Free') return 'border-green-500/40 bg-green-500/15 text-green-600';
+  if (level === 'Low') return 'border-blue-500/40 bg-blue-500/15 text-blue-600';
+  if (level === 'Medium') return 'border-amber-500/40 bg-amber-500/15 text-amber-600';
+  return 'border-red-500/40 bg-red-500/15 text-red-600';
+}
+
+function editorNameFromWorkload(item: Record<string, unknown>) {
+  return String(item.editorName ?? item.editor_name ?? item.name ?? '').trim();
+}
+
+function workloadFromApi(item: Record<string, unknown>): EditorWorkload {
+  const values = {
+    podcastDraft: normalizeQuantity(item.podcastDraft ?? item.podcast_draft),
+    podcastEdit: normalizeQuantity(item.podcastEdit ?? item.podcast_edit),
+    reelDraft: normalizeQuantity(item.reelDraft ?? item.reel_draft),
+    reelEdit: normalizeQuantity(item.reelEdit ?? item.reel_edit ?? item.reel),
+    longFormatVideo: normalizeQuantity(item.longFormatVideo ?? item.long_format_video),
+    teaserDemo: normalizeQuantity(item.teaserDemo ?? item.teaser_demo),
+    teaser: normalizeQuantity(item.teaser),
+    thumbnail: normalizeQuantity(item.thumbnail),
+  };
+
+  return {
+    editorName: editorNameFromWorkload(item),
+    activeProjects: Number(item.activeProjects ?? item.active_projects ?? 0) || 0,
+    totalDeliverables: Number(item.totalDeliverables ?? item.total_deliverables) || totalDeliverables(values),
+    ...values,
+  };
+}
+
+function workloadForEditor(workloads: EditorWorkload[], editorName: string) {
+  return workloads.find(
+    (item) => item.editorName.trim().toLowerCase() === editorName.trim().toLowerCase()
+  );
+}
+
+function editorDropdownLabel(workloads: EditorWorkload[], editorName: string) {
+  const workload = workloadForEditor(workloads, editorName);
+  if (!workload) return editorName;
+
+  const total = workload.totalDeliverables;
+  const level = workloadLevel(total);
+  return level === 'Free' ? `${editorName} (Free)` : `${editorName} (${level} - ${total})`;
+}
+
+function WorkloadBreakdown({ workload }: { workload: EditorWorkload }) {
+  const items = [
+    Number(workload.podcastDraft || 0) || Number(workload.podcastEdit || 0)
+      ? `🎙 Podcast: ${workload.podcastDraft || '0'} drafts, ${workload.podcastEdit || '0'} edits`
+      : '',
+    Number(workload.reelDraft || 0) || Number(workload.reelEdit || 0)
+      ? `🎬 Reels: ${workload.reelDraft || '0'} drafts, ${workload.reelEdit || '0'} edits`
+      : '',
+    Number(workload.longFormatVideo || 0)
+      ? `📹 Long Format: ${workload.longFormatVideo}`
+      : '',
+    Number(workload.teaserDemo || 0) || Number(workload.teaser || 0)
+      ? `🎯 Teasers: ${workload.teaserDemo || '0'} demos, ${workload.teaser || '0'} final`
+      : '',
+    Number(workload.thumbnail || 0) ? `🖼 Thumbnails: ${workload.thumbnail}` : '',
+  ].filter(Boolean);
+
+  if (items.length === 0) {
+    return <p className="text-xs text-muted-foreground">No active deliverables.</p>;
+  }
+
+  return (
+    <div className="space-y-1 text-xs text-muted-foreground">
+      {items.map((item) => (
+        <p key={item}>{item}</p>
+      ))}
+    </div>
+  );
+}
+
 export default function ManagerPage() {
   const { user } = useAuth();
   const { triggerWorkflow, triggering } = useWorkflow();
@@ -42,6 +186,7 @@ export default function ManagerPage() {
   const [shoots, setShoots] = useState<Shoot[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [editing, setEditing] = useState<EditingProject[]>([]);
+  const [editorWorkload, setEditorWorkload] = useState<EditorWorkload[]>([]);
   const [assignShoot, setAssignShoot] = useState<Shoot | null>(null);
   const [assigningEditor, setAssigningEditor] = useState(false);
   const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
@@ -53,6 +198,7 @@ export default function ManagerPage() {
     editorEmail: EDITING_EDITORS[0].email,
     dataLink: '',
     totalService: '1',
+    ...DEFAULT_DELIVERABLES,
   });
 
   useEffect(() => {
@@ -87,6 +233,34 @@ export default function ManagerPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchEditorWorkload() {
+      try {
+        const response = await fetch(EDITOR_WORKLOAD_URL, { cache: 'no-store' });
+        const data = await response.json().catch(() => []);
+        if (!mounted || !response.ok) return;
+
+        const rows = Array.isArray(data) ? data : data.workload ?? data.editors ?? [];
+        setEditorWorkload(
+          rows
+            .map((item: Record<string, unknown>) => workloadFromApi(item))
+            .filter((item: EditorWorkload) => item.editorName)
+        );
+      } catch (error) {
+        console.error('Failed to fetch editor workload:', error);
+      }
+    }
+
+    fetchEditorWorkload();
+    const interval = setInterval(fetchEditorWorkload, 60000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   const openShoot = (p: Project) => { setShootProject(p); setShootOpen(true); };
   const openEditor = (p: Project) => { setEditorProject(p); setEditorOpen(true); };
   const openDetail = (p: Project) => { setDetailProject(p); setDetailOpen(true); };
@@ -97,6 +271,7 @@ export default function ManagerPage() {
   };
 
   const openAssignShoot = (shoot: Shoot) => {
+    const lead = leads.find((item) => item.leadId === shoot.leadId);
     setAssignShoot(shoot);
     setAssignForm({
       serviceType: '',
@@ -104,6 +279,7 @@ export default function ManagerPage() {
       editorEmail: EDITING_EDITORS[0].email,
       dataLink: shoot.dataLink,
       totalService: '1',
+      ...leadDeliverables(lead),
     });
   };
 
@@ -124,6 +300,15 @@ export default function ManagerPage() {
         editor_name: assignForm.editorName,
         editor_email: assignForm.editorEmail,
         total_service: assignForm.totalService,
+        podcast_draft: normalizeQuantity(assignForm.podcastDraft),
+        podcast_edit: normalizeQuantity(assignForm.podcastEdit),
+        reel_draft: normalizeQuantity(assignForm.reelDraft),
+        reel_edit: normalizeQuantity(assignForm.reelEdit),
+        reel: normalizeQuantity(assignForm.reelEdit),
+        long_format_video: normalizeQuantity(assignForm.longFormatVideo),
+        teaser_demo: normalizeQuantity(assignForm.teaserDemo),
+        teaser: normalizeQuantity(assignForm.teaser),
+        thumbnail: normalizeQuantity(assignForm.thumbnail),
       });
       toast.success('Editor assigned!');
       setAssignShoot(null);
@@ -311,6 +496,40 @@ export default function ManagerPage() {
 
       <Card className="mb-6">
         <CardHeader>
+          <CardTitle className="text-base">Editor Workload</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {editorWorkload.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No workload data available yet.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              {editorWorkload.map((workload) => {
+                const level = workloadLevel(workload.totalDeliverables);
+                return (
+                  <div key={workload.editorName} className="rounded-md border border-border p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-base font-semibold">{workload.editorName}</p>
+                      <Badge className={workloadBadgeClass(level)}>{level}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Active projects: {workload.activeProjects}
+                    </p>
+                    <WorkloadBreakdown workload={workload} />
+                    <p className="text-sm font-medium">
+                      Total deliverables: {workload.totalDeliverables}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
           <CardTitle className="text-base">In Editing</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -480,7 +699,7 @@ export default function ManagerPage() {
       <AssignEditorDialog project={editorProject} open={editorOpen} onOpenChange={setEditorOpen} />
 
       <Dialog open={Boolean(assignShoot)} onOpenChange={(open) => !open && setAssignShoot(null)}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Assign Editor</DialogTitle>
             <DialogDescription>Send footage to editing and notify the selected editor.</DialogDescription>
@@ -502,13 +721,46 @@ export default function ManagerPage() {
                     placeholder="Podcast / Reel / Long Format"
                   />
                 </div>
+                <div className="space-y-3 sm:col-span-2">
+                  <div>
+                    <p className="text-sm font-medium">Deliverable Assignment</p>
+                    <p className="text-xs text-muted-foreground">
+                      Prefilled from the client proposal. Adjust before assigning if needed.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {DELIVERABLE_FIELDS.map((field) => (
+                      <div className="space-y-2" key={field.key}>
+                        <Label htmlFor={`assign-${field.key}`}>{field.label}</Label>
+                        <Input
+                          id={`assign-${field.key}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={assignForm[field.key]}
+                          onChange={(event) =>
+                            setAssignForm((prev) => ({
+                              ...prev,
+                              [field.key]: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-sm font-medium">
+                    Total deliverables: {totalDeliverables(assignForm)}
+                  </p>
+                </div>
                 <div className="space-y-2">
                   <Label>Editor</Label>
                   <Select value={assignForm.editorName} onValueChange={handleEditorChange}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {EDITING_EDITORS.map((editor) => (
-                        <SelectItem key={editor.name} value={editor.name}>{editor.name}</SelectItem>
+                        <SelectItem key={editor.name} value={editor.name}>
+                          {editorDropdownLabel(editorWorkload, editor.name)}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

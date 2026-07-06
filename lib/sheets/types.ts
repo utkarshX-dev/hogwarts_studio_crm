@@ -21,6 +21,15 @@ export interface CreateLeadInput {
   clientEmail?: string;
   cost?: string;
   reachoutDone: 'yes' | 'no';
+  podcastDraft?: string;
+  podcastEdit?: string;
+  reelDraft?: string;
+  reelEdit?: string;
+  longFormatVideo?: string;
+  teaserDemo?: string;
+  teaser?: string;
+  thumbnail?: string;
+  serviceNotes?: string;
 }
 
 export interface Lead {
@@ -40,6 +49,15 @@ export interface Lead {
   proposalSent: string;
   proposalAccepted: boolean;
   proposalSentAt: string;
+  podcastDraft: string;
+  podcastEdit: string;
+  reelDraft: string;
+  reelEdit: string;
+  longFormatVideo: string;
+  teaserDemo: string;
+  teaser: string;
+  thumbnail: string;
+  serviceNotes: string;
   serialNo: number;
   searchText: string;
   payment: Payment | null;

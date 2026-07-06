@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import {
   AlertCircle,
@@ -26,6 +27,31 @@ import type { EditingProject } from '@/lib/sheets/types';
 import { postWebhook } from '@/lib/editing';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+
+const DELIVERABLE_FIELDS = [
+  { key: 'podcastDraft', label: 'Podcast Draft', pill: '🎙 Podcast Drafts' },
+  { key: 'podcastEdit', label: 'Podcast Edit', pill: '🎙 Podcast Edits' },
+  { key: 'reelDraft', label: 'Reel Draft', pill: '🎬 Reel Drafts' },
+  { key: 'reel', label: 'Reel Edit', pill: '🎬 Reel Edits' },
+  { key: 'longFormatVideo', label: 'Long Format Video', pill: '📹 Long Format' },
+  { key: 'teaserDemo', label: 'Teaser Demo', pill: '🎯 Teaser Demos' },
+  { key: 'teaser', label: 'Teaser', pill: '🎯 Teasers' },
+  { key: 'thumbnail', label: 'Thumbnail', pill: '🖼 Thumbnails' },
+] as const;
+
+type DeliverableKey = (typeof DELIVERABLE_FIELDS)[number]['key'];
+
+function quantity(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+function projectDeliverables(edit: EditingProject) {
+  return DELIVERABLE_FIELDS.map((field) => ({
+    ...field,
+    count: quantity(String(edit[field.key] ?? '0')),
+  })).filter((item) => item.count > 0);
+}
 
 function isSameEditor(edit: EditingProject, name = '', email = '') {
   const editorName = edit.editorName.trim().toLowerCase();
@@ -64,6 +90,57 @@ function DeadlineBadge({ deadlineAt }: { deadlineAt: string }) {
   );
 }
 
+function DeliverableTracking({
+  edit,
+  done,
+  onToggle,
+}: {
+  edit: EditingProject;
+  done: Partial<Record<DeliverableKey, boolean>>;
+  onToggle: (key: DeliverableKey, checked: boolean) => void;
+}) {
+  const deliverables = projectDeliverables(edit);
+
+  if (deliverables.length === 0) return null;
+
+  return (
+    <div className="space-y-3 border-t border-border pt-3">
+      <div className="flex flex-wrap gap-1.5">
+        {deliverables.map((item) => (
+          <Badge key={item.key} variant="outline" className="text-xs">
+            {item.pill} {item.count}
+          </Badge>
+        ))}
+      </div>
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">Progress</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {deliverables.map((item) => {
+            const checked = Boolean(done[item.key]);
+            return (
+              <label
+                key={item.key}
+                htmlFor={`done-${edit.editId}-${item.key}`}
+                className={cn(
+                  'flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm',
+                  checked && 'bg-green-500/10 text-green-600 border-green-500/30'
+                )}
+              >
+                <Checkbox
+                  id={`done-${edit.editId}-${item.key}`}
+                  checked={checked}
+                  onCheckedChange={(value) => onToggle(item.key, Boolean(value))}
+                />
+                {item.label} ({item.count}) {checked ? 'Done' : ''}
+              </label>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RevisionText(edit: EditingProject) {
   return `Revision ${edit.revisionCount}/${edit.maxFreeRevisions}`;
 }
@@ -78,6 +155,7 @@ export default function EditorPage() {
   const [submittingDraftId, setSubmittingDraftId] = useState<string | null>(null);
   const [arrangingCallId, setArrangingCallId] = useState<string | null>(null);
   const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
+  const [deliverableDone, setDeliverableDone] = useState<Record<string, Partial<Record<DeliverableKey, boolean>>>>({});
 
   const refreshEditing = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -229,6 +307,19 @@ export default function EditorPage() {
                       View Footage
                     </a>
                   </Button>
+                  <DeliverableTracking
+                    edit={edit}
+                    done={deliverableDone[edit.editId] ?? {}}
+                    onToggle={(key, checked) =>
+                      setDeliverableDone((prev) => ({
+                        ...prev,
+                        [edit.editId]: {
+                          ...(prev[edit.editId] ?? {}),
+                          [key]: checked,
+                        },
+                      }))
+                    }
+                  />
                   <div className="space-y-2 border-t border-border pt-3">
                     <Label htmlFor={`draft-${edit.editId}`}>Draft Link</Label>
                     <Input
