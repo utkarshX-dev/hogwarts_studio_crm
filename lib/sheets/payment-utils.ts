@@ -71,7 +71,11 @@ export function filterSalesLeads<T extends Lead>(
   userRole: string | undefined
 ): T[] {
   return leads.filter(
-    (lead) => lead.assignedTo === userName || userRole === 'manager'
+    (lead) =>
+      lead.assignedTo === userName ||
+      userRole === 'manager' ||
+      userRole === 'sales' ||
+      userRole === 'admin'
   );
 }
 

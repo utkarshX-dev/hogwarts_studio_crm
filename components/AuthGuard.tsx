@@ -31,17 +31,7 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   }, [user, isLoading, allowedRoles, router]);
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        <div className="w-full max-w-sm flex flex-col gap-4">
-          <Skeleton className="h-8 w-48 mx-auto" />
-          <Skeleton className="h-4 w-64 mx-auto" />
-          <span className="text-xs text-muted-foreground text-center font-medium">
-            Verifying credentials...
-          </span>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   if (!user) return null;

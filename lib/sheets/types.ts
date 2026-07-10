@@ -132,6 +132,7 @@ export interface EditingProject {
   deadlineAt: string;
   deadlineNotified: string;
   finalDelivered: boolean;
+  revisionFeedback?: string;
   searchText: string;
 }
 

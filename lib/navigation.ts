@@ -26,7 +26,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Clients', href: '/clients', icon: Users, roles: ['manager', 'admin', 'sales'] },
   { label: 'Finance', href: '/finance', icon: Wallet, roles: ['manager', 'admin'] },
   { label: 'Analytics', href: '/analytics', icon: BarChart3, roles: ['manager', 'admin'] },
-  { label: 'Settings', href: '/settings', icon: Settings, roles: ['manager', 'admin', 'sales', 'editor', 'shoot'] },
+  { label: 'Settings', href: '/settings', icon: Settings, roles: ['manager'] },
 ];
 
 export function getNavForRole(role: UserRole): NavItem[] {

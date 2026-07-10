@@ -13,7 +13,7 @@ export interface User {
 export interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
-  login: (username: string, role: UserRole) => Promise<boolean>;
+  login: (username: string, role: UserRole, password?: string) => Promise<boolean>;
   logout: () => void;
   initAuth: () => void;
 }
@@ -37,9 +37,9 @@ export const MOCK_USERS: Record<UserRole, Omit<User, 'role'>> = {
   },
   editor: {
     id: 'u003',
-    name: 'Deepanshu',
-    initials: 'D',
-    email: 'deepanshu@hogwartsmedia.com',
+    name: 'Editor',
+    initials: 'E',
+    email: 'editor@hogwartsmedia.com',
     username: 'editor',
     redirectTo: '/editor',
   },

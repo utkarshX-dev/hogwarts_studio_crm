@@ -109,53 +109,7 @@ export function Header({ onMenuClick }: HeaderProps) {
 
         <div className="flex-1" />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="h-4 w-4" />
-              {pendingVerifications > 0 && (
-                <span
-                  className={cn(
-                    'absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground'
-                  )}
-                >
-                  {pendingVerifications > 9 ? '9+' : pendingVerifications}
-                </span>
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
-            <DropdownMenuLabel>
-              {pendingVerifications > 0
-                ? `${pendingVerifications} payment${pendingVerifications === 1 ? '' : 's'} awaiting verification`
-                : 'Notifications'}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {pendingVerifications > 0 ? (
-              pendingLeads.map((lead) => (
-                <DropdownMenuItem
-                  key={lead.leadId}
-                  onClick={() => router.push('/sales')}
-                  className="flex flex-col items-start gap-0.5 py-2"
-                >
-                  <span className="font-medium">{lead.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    Screenshot uploaded — pending verification
-                  </span>
-                </DropdownMenuItem>
-              ))
-            ) : (
-              ACTIVITY.slice(0, 5).map((a) => (
-                <div key={a.id} className="px-2 py-2 text-sm">
-                  <p className="text-foreground leading-tight">{a.message}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {a.actor} · {formatRelativeTime(a.timestamp)}
-                  </p>
-                </div>
-              ))
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

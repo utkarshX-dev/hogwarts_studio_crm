@@ -13,7 +13,7 @@ const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:X`;
 const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:X`;
 const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
 const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
-const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AG`;
+const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AH`;
 
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -178,6 +178,7 @@ function rowToEditingProject(row: string[]): EditingProject | null {
     deadlineAt: row[29]?.trim() ?? '',
     deadlineNotified: row[30]?.trim() ?? '',
     finalDelivered: parseBoolean(row[31]),
+    revisionFeedback: row[33]?.trim() ?? '',
     searchText: `${clientName} ${editorName} ${serviceType} ${leadId}`.toLowerCase(),
   };
 }
@@ -281,8 +282,6 @@ export async function fetchPaymentsFromSheet(): Promise<Payment[]> {
     });
 
     const rows = response.data.values ?? [];
-
-    console.log('Payments sheet data:', rows);
 
     return rows
       .map((row) => rowToPayment(row as string[]))

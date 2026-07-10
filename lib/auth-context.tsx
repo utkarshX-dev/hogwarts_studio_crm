@@ -30,11 +30,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, [initAuth]);
 
-  const login = useCallback(async (username: string, role: UserRole) => {
+  const login = useCallback(async (username: string, role: UserRole, password?: string) => {
     setIsLoading(true);
     await new Promise((r) => setTimeout(r, 600));
-    const details = MOCK_USERS[role];
-    if (details && username === details.username) {
+
+    let usersConfig = MOCK_USERS;
+    let passwordsConfig: Record<string, string> = {};
+    if (typeof window !== 'undefined') {
+      const savedConfig = window.localStorage.getItem('howgarts_users_config');
+      if (savedConfig) {
+        try {
+          usersConfig = JSON.parse(savedConfig);
+        } catch (e) {
+          console.error('Failed to parse howgarts_users_config:', e);
+        }
+      }
+      const savedPasswords = window.localStorage.getItem('howgarts_users_passwords');
+      if (savedPasswords) {
+        try {
+          passwordsConfig = JSON.parse(savedPasswords);
+        } catch (e) {
+          console.error('Failed to parse howgarts_users_passwords:', e);
+        }
+      }
+    }
+
+    const details = usersConfig[role];
+    const expectedPassword = passwordsConfig[role] || 'password';
+
+    if (details && (username.trim().toLowerCase() === details.username.toLowerCase() || username.trim().toLowerCase() === details.email.toLowerCase())) {
+      const inputPassword = password || '';
+      if (inputPassword !== expectedPassword) {
+        setIsLoading(false);
+        toast.error('Authentication Failed', {
+          description: 'Incorrect password',
+        });
+        return false;
+      }
+
       const authed: User = { ...details, role };
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(SESSION_KEY, JSON.stringify(authed));
@@ -46,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       return true;
     }
+
     setIsLoading(false);
     toast.error('Authentication Failed', {
       description: 'Invalid credentials or role',

@@ -3,28 +3,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatCard } from '@/components/shared/StatCard';
-import { StatusBadge, PriorityBadge } from '@/components/shared/Badges';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ManagerShimmer } from '@/components/shared/ShimmerLoader';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
-import { AssignShootDialog } from '@/components/dialogs/AssignShootDialog';
-import { AssignEditorDialog } from '@/components/dialogs/AssignEditorDialog';
 import {
-  Briefcase, Camera, Scissors, CheckCircle, ArrowRight, Calendar, ExternalLink,
+  Briefcase, Camera, Scissors, CheckCircle, ExternalLink,
 } from 'lucide-react';
 import { PROJECTS, EDITORS } from '@/lib/mock-data';
-import { KANBAN_COLUMNS, STATUS_META } from '@/lib/status-config';
-import { formatINR, formatDate, titleCase } from '@/lib/formatter';
+import { formatINR, formatDate } from '@/lib/formatter';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { useAuth } from '@/lib/auth-context';
-import type { Project, ProjectStatus } from '@/lib/types';
+import type { Project } from '@/lib/types';
 import type { EditingProject, Lead, Shoot } from '@/lib/sheets/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -144,6 +141,48 @@ function editorDropdownLabel(workloads: EditorWorkload[], editorName: string) {
   return level === 'Free' ? `${editorName} (Free)` : `${editorName} (${level} - ${total})`;
 }
 
+function calculateWorkloadFromEditing(editingProjects: EditingProject[]): EditorWorkload[] {
+  const activeStatuses = ['Editing', 'Extra Revision Approved', 'Revision Requested', 'Draft Sent', 'Draft Ready'];
+  return EDITING_EDITORS.map((editor) => {
+    const editorProjects = editingProjects.filter(
+      (edit) =>
+        edit.editorName.trim().toLowerCase() === editor.name.trim().toLowerCase() &&
+        activeStatuses.includes(edit.status)
+    );
+
+    const values = {
+      podcastDraft: '0',
+      podcastEdit: '0',
+      reelDraft: '0',
+      reelEdit: '0',
+      longFormatVideo: '0',
+      teaserDemo: '0',
+      teaser: '0',
+      thumbnail: '0',
+    };
+
+    editorProjects.forEach((edit) => {
+      values.podcastDraft = String(Number(values.podcastDraft) + Number(normalizeQuantity(edit.podcastDraft)));
+      values.podcastEdit = String(Number(values.podcastEdit) + Number(normalizeQuantity(edit.podcastEdit)));
+      values.reelDraft = String(Number(values.reelDraft) + Number(normalizeQuantity(edit.reelDraft)));
+      values.reelEdit = String(Number(values.reelEdit) + Number(normalizeQuantity(edit.reel || edit.reelDraft)));
+      values.longFormatVideo = String(Number(values.longFormatVideo) + Number(normalizeQuantity(edit.longFormatVideo)));
+      values.teaserDemo = String(Number(values.teaserDemo) + Number(normalizeQuantity(edit.teaserDemo)));
+      values.teaser = String(Number(values.teaser) + Number(normalizeQuantity(edit.teaser)));
+      values.thumbnail = String(Number(values.thumbnail) + Number(normalizeQuantity(edit.thumbnail)));
+    });
+
+    const total = totalDeliverables(values);
+
+    return {
+      editorName: editor.name,
+      activeProjects: editorProjects.length,
+      totalDeliverables: total,
+      ...values,
+    };
+  });
+}
+
 function WorkloadBreakdown({ workload }: { workload: EditorWorkload }) {
   const items = [
     Number(workload.podcastDraft || 0) || Number(workload.podcastEdit || 0)
@@ -177,12 +216,7 @@ function WorkloadBreakdown({ workload }: { workload: EditorWorkload }) {
 export default function ManagerPage() {
   const { user } = useAuth();
   const { triggerWorkflow, triggering } = useWorkflow();
-  const [shootProject, setShootProject] = useState<Project | null>(null);
-  const [editorProject, setEditorProject] = useState<Project | null>(null);
-  const [detailProject, setDetailProject] = useState<Project | null>(null);
-  const [shootOpen, setShootOpen] = useState(false);
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [shoots, setShoots] = useState<Shoot[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [editing, setEditing] = useState<EditingProject[]>([]);
@@ -192,6 +226,7 @@ export default function ManagerPage() {
   const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
   const [approvingExtraId, setApprovingExtraId] = useState<string | null>(null);
   const [extraCosts, setExtraCosts] = useState<Record<string, string>>({});
+  const [extraFeedback, setExtraFeedback] = useState<Record<string, string>>({});
   const [assignForm, setAssignForm] = useState({
     serviceType: '',
     editorName: EDITING_EDITORS[0].name,
@@ -222,6 +257,8 @@ export default function ManagerPage() {
         if (leadResponse.ok) setLeads(leadData.leads ?? []);
       } catch (error) {
         console.error('Failed to fetch manager dashboard data:', error);
+      } finally {
+        if (mounted) setLoading(false);
       }
     }
 
@@ -240,16 +277,23 @@ export default function ManagerPage() {
       try {
         const response = await fetch(EDITOR_WORKLOAD_URL, { cache: 'no-store' });
         const data = await response.json().catch(() => []);
-        if (!mounted || !response.ok) return;
+        if (!mounted) return;
 
         const rows = Array.isArray(data) ? data : data.workload ?? data.editors ?? [];
-        setEditorWorkload(
-          rows
-            .map((item: Record<string, unknown>) => workloadFromApi(item))
-            .filter((item: EditorWorkload) => item.editorName)
-        );
+        const apiWorkloads = rows
+          .map((item: Record<string, unknown>) => workloadFromApi(item))
+          .filter((item: EditorWorkload) => item.editorName);
+
+        if (response.ok && apiWorkloads.length > 0) {
+          setEditorWorkload(apiWorkloads);
+        } else {
+          setEditorWorkload(calculateWorkloadFromEditing(editing));
+        }
       } catch (error) {
-        console.error('Failed to fetch editor workload:', error);
+        console.error('Failed to fetch editor workload, using local calculation:', error);
+        if (mounted) {
+          setEditorWorkload(calculateWorkloadFromEditing(editing));
+        }
       }
     }
 
@@ -259,11 +303,8 @@ export default function ManagerPage() {
       mounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [editing]);
 
-  const openShoot = (p: Project) => { setShootProject(p); setShootOpen(true); };
-  const openEditor = (p: Project) => { setEditorProject(p); setEditorOpen(true); };
-  const openDetail = (p: Project) => { setDetailProject(p); setDetailOpen(true); };
   const refreshEditing = async () => {
     const response = await fetch('/api/editing', { cache: 'no-store' });
     const data = await response.json();
@@ -370,15 +411,22 @@ export default function ManagerPage() {
       await postWebhook('/confirm-extra-revision', {
         edit_id: edit.editId,
         extra_revision_cost: extraCosts[edit.editId] ?? edit.extraRevisionCost,
+        feedback: extraFeedback[edit.editId] ?? '',
       });
       toast.success('Extra revision approved, editor notified!');
       setEditing((prev) =>
         prev.map((item) =>
           item.editId === edit.editId
-            ? { ...item, status: 'Extra Revision Approved', extraRevisionApproved: true }
+            ? {
+                ...item,
+                status: 'Extra Revision Approved',
+                extraRevisionApproved: true,
+                revisionFeedback: extraFeedback[edit.editId] ?? item.revisionFeedback,
+              }
             : item
         )
       );
+      setExtraFeedback((prev) => ({ ...prev, [edit.editId]: '' }));
       await refreshEditing();
     } catch (error) {
       toast.error('Failed to approve extra revision', {
@@ -387,31 +435,6 @@ export default function ManagerPage() {
     } finally {
       setApprovingExtraId(null);
     }
-  };
-
-  const advanceStatus = async (p: Project) => {
-    const order = KANBAN_COLUMNS;
-    const idx = order.indexOf(p.status);
-    const next = order[idx + 1];
-    if (!next) return;
-    const event = next === 'editor_assigned' ? 'editor.assigned' : next === 'shoot_scheduled' ? 'shoot.assigned' : 'lead.updated';
-    await triggerWorkflow(event, {
-      projectId: p.id,
-      clientId: p.client.id,
-      data: { from: p.status, to: next },
-      triggeredBy: user?.name ?? 'manager',
-    });
-    toast.success('Status Updated', { description: `${p.client.company} → ${STATUS_META[next].label}` });
-  };
-
-  const approveDraft = async (p: Project) => {
-    await triggerWorkflow('draft.approved', {
-      projectId: p.id,
-      clientId: p.client.id,
-      data: { draftLink: p.draftLink },
-      triggeredBy: user?.name ?? 'manager',
-    });
-    toast.success('Draft Approved', { description: `${p.client.company} draft approved` });
   };
 
   const activeProjects = PROJECTS.filter((p) => !['closed', 'delivered'].includes(p.status)).length;
@@ -433,9 +456,13 @@ export default function ManagerPage() {
   const draftReady = editing.filter((edit) => edit.status === 'Draft Ready');
   const extraRevisionNeeded = editing.filter(isExtraRevisionNeeded);
 
+  if (loading) {
+    return <ManagerShimmer />;
+  }
+
   return (
     <div>
-      <PageHeader title="Manager" description="Kanban board, assignments, and approvals" />
+      <PageHeader title="Manager" description="Assignments and approvals" />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <StatCard title="Active Projects" value={activeProjects} icon={Briefcase} />
@@ -587,116 +614,46 @@ export default function ManagerPage() {
             <p className="text-sm text-muted-foreground py-4 text-center">No extra revision approvals pending.</p>
           ) : (
             extraRevisionNeeded.map((edit) => (
-              <div key={edit.editId} className="grid gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 lg:grid-cols-[1.2fr_1fr_180px_auto] lg:items-center">
-                <div>
-                  <p className="text-sm font-medium">{edit.clientName}</p>
-                  <p className="text-xs text-muted-foreground">{edit.editorName} · Revision {edit.revisionCount}/{edit.maxFreeRevisions}</p>
+              <div key={edit.editId} className="flex flex-col gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+                <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_180px_auto] lg:items-center">
+                  <div>
+                    <p className="text-sm font-medium">{edit.clientName}</p>
+                    <p className="text-xs text-muted-foreground">{edit.editorName} · Revision {edit.revisionCount}/{edit.maxFreeRevisions}</p>
+                  </div>
+                  <Badge className="w-fit border-amber-500/40 bg-amber-500/15 text-amber-600">Sales confirmation needed</Badge>
+                  <Input
+                    type="number"
+                    min="0"
+                    placeholder="Extra cost"
+                    value={extraCosts[edit.editId] ?? edit.extraRevisionCost}
+                    onChange={(event) =>
+                      setExtraCosts((prev) => ({ ...prev, [edit.editId]: event.target.value }))
+                    }
+                  />
+                  <Button size="sm" onClick={() => approveExtraRevision(edit)} disabled={approvingExtraId === edit.editId}>
+                    Approve Extra Revision
+                  </Button>
                 </div>
-                <Badge className="w-fit border-amber-500/40 bg-amber-500/15 text-amber-600">Sales confirmation needed</Badge>
-                <Input
-                  type="number"
-                  min="0"
-                  placeholder="Extra cost"
-                  value={extraCosts[edit.editId] ?? edit.extraRevisionCost}
-                  onChange={(event) =>
-                    setExtraCosts((prev) => ({ ...prev, [edit.editId]: event.target.value }))
-                  }
-                />
-                <Button size="sm" onClick={() => approveExtraRevision(edit)} disabled={approvingExtraId === edit.editId}>
-                  Approve Extra Revision
-                </Button>
+                <div className="space-y-1.5 border-t border-amber-500/10 pt-2.5">
+                  <Label htmlFor={`extra-feedback-${edit.editId}`} className="text-xs font-semibold text-muted-foreground">Changes Required (Hand over to Editor)</Label>
+                  <Textarea
+                    id={`extra-feedback-${edit.editId}`}
+                    placeholder="Describe the changes needed..."
+                    rows={2}
+                    value={extraFeedback[edit.editId] ?? ''}
+                    onChange={(event) =>
+                      setExtraFeedback((prev) => ({ ...prev, [edit.editId]: event.target.value }))
+                    }
+                    className="text-xs bg-background"
+                  />
+                </div>
               </div>
             ))
           )}
         </CardContent>
       </Card>
 
-      <div className="mb-4">
-        <h2 className="text-base font-semibold mb-3">Pipeline Board</h2>
-        <div className="overflow-x-auto pb-2">
-          <div className="flex gap-3 min-w-max">
-            {KANBAN_COLUMNS.map((status) => {
-              const items = PROJECTS.filter((p) => p.status === status);
-              const meta = STATUS_META[status];
-              return (
-                <div key={status} className="w-[260px] shrink-0">
-                  <div className="flex items-center justify-between mb-2 px-1">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full" style={{ background: meta.color }} />
-                      <span className="text-sm font-medium">{meta.label}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground tabular-nums">{items.length}</span>
-                  </div>
-                  <div className="space-y-2">
-                    {items.map((p) => (
-                      <Card
-                        key={p.id}
-                        className="cursor-pointer hover:border-foreground/20 transition-colors"
-                        onClick={() => openDetail(p)}
-                      >
-                        <CardContent className="p-3 space-y-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium truncate">{p.client.company}</p>
-                              <p className="text-xs text-muted-foreground">{titleCase(p.service)}</p>
-                            </div>
-                            <PriorityBadge priority={p.priority} />
-                          </div>
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="tabular-nums text-muted-foreground">{formatINR(p.budget)}</span>
-                            {p.editor && (
-                              <span className="flex items-center gap-1 text-muted-foreground">
-                                <Scissors className="h-3 w-3" />
-                                {p.editor.initials}
-                              </span>
-                            )}
-                          </div>
-                          {p.shootDate && (
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Calendar className="h-3 w-3" />
-                              {formatDate(p.shootDate)}
-                            </div>
-                          )}
-                          <div className="flex items-center gap-1.5 pt-1 border-t border-border">
-                            {status === 'payment_done' && (
-                              <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={(e) => { e.stopPropagation(); openShoot(p); }}>
-                                <Camera className="mr-1 h-3 w-3" /> Schedule
-                              </Button>
-                            )}
-                            {status === 'footage_received' && (
-                              <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={(e) => { e.stopPropagation(); openEditor(p); }}>
-                                <Scissors className="mr-1 h-3 w-3" /> Assign Editor
-                              </Button>
-                            )}
-                            {status === 'draft_sent' && (
-                              <Button size="sm" variant="outline" className="h-7 text-xs flex-1" onClick={(e) => { e.stopPropagation(); approveDraft(p); }} disabled={triggering['draft.approved']}>
-                                <CheckCircle className="mr-1 h-3 w-3" /> Approve
-                              </Button>
-                            )}
-                            {status !== 'draft_sent' && status !== 'footage_received' && status !== 'payment_done' && (
-                              <Button size="sm" variant="ghost" className="h-7 text-xs flex-1" onClick={(e) => { e.stopPropagation(); advanceStatus(p); }}>
-                                Advance <ArrowRight className="ml-1 h-3 w-3" />
-                              </Button>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                    {items.length === 0 && (
-                      <div className="rounded-md border border-dashed border-border py-6 text-center">
-                        <span className="text-xs text-muted-foreground">Empty</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
 
-      <AssignShootDialog project={shootProject} open={shootOpen} onOpenChange={setShootOpen} />
-      <AssignEditorDialog project={editorProject} open={editorOpen} onOpenChange={setEditorOpen} />
 
       <Dialog open={Boolean(assignShoot)} onOpenChange={(open) => !open && setAssignShoot(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -765,6 +722,54 @@ export default function ManagerPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2 sm:col-span-2 border border-border rounded-md p-3 bg-muted/30">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Editor Availability & Workload</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1.5">
+                    {EDITING_EDITORS.map((editor) => {
+                      const workload = workloadForEditor(editorWorkload, editor.name);
+                      const total = workload?.totalDeliverables ?? 0;
+                      const level = workloadLevel(total);
+                      const isSelected = assignForm.editorName === editor.name;
+                      return (
+                        <div
+                          key={editor.name}
+                          onClick={() => handleEditorChange(editor.name)}
+                          className={cn(
+                            "cursor-pointer rounded-md border p-2 text-left transition-all",
+                            isSelected
+                              ? "border-primary bg-primary/5 ring-1 ring-primary"
+                              : "border-border bg-card hover:bg-muted"
+                          )}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-medium">{editor.name}</span>
+                            <Badge className={cn("text-[9px] px-1 py-0", workloadBadgeClass(level))}>
+                              {level}
+                            </Badge>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            Projects: {workload?.activeProjects ?? 0}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            Deliverables: {total}
+                          </p>
+                          {workload && total > 0 && (
+                            <div className="mt-1 border-t border-border/50 pt-1 text-[9px] text-muted-foreground/80 space-y-0.5">
+                              {Number(workload.podcastDraft || 0) > 0 && <div>🎙 Pod D: {workload.podcastDraft}</div>}
+                              {Number(workload.podcastEdit || 0) > 0 && <div>🎙 Pod E: {workload.podcastEdit}</div>}
+                              {Number(workload.reelDraft || 0) > 0 && <div>🎬 Reel D: {workload.reelDraft}</div>}
+                              {Number(workload.reelEdit || 0) > 0 && <div>🎬 Reel E: {workload.reelEdit}</div>}
+                              {Number(workload.longFormatVideo || 0) > 0 && <div>📹 Long: {workload.longFormatVideo}</div>}
+                              {Number(workload.teaserDemo || 0) > 0 && <div>🎯 Teas D: {workload.teaserDemo}</div>}
+                              {Number(workload.teaser || 0) > 0 && <div>🎯 Teas E: {workload.teaser}</div>}
+                              {Number(workload.thumbnail || 0) > 0 && <div>🖼 Thumb: {workload.thumbnail}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="editor-email">Editor Email</Label>
                   <Input
@@ -805,103 +810,7 @@ export default function ManagerPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Project Detail Dialog */}
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          {detailProject && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  {detailProject.client.company}
-                  <StatusBadge status={detailProject.status} />
-                </DialogTitle>
-                <DialogDescription>
-                  #{detailProject.serialNo} · {titleCase(detailProject.service)} · {detailProject.client.name}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-md border border-border p-3">
-                    <p className="text-xs text-muted-foreground mb-1">Budget</p>
-                    <p className="text-sm font-medium tabular-nums">{formatINR(detailProject.budget)}</p>
-                  </div>
-                  <div className="rounded-md border border-border p-3">
-                    <p className="text-xs text-muted-foreground mb-1">Collected</p>
-                    <p className="text-sm font-medium tabular-nums">{formatINR(detailProject.paidAmount)}</p>
-                  </div>
-                </div>
 
-                {detailProject.requirements && (
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1.5">Requirements</p>
-                    <p className="text-sm">{detailProject.requirements}</p>
-                  </div>
-                )}
-
-                {detailProject.shoot && (
-                  <div className="rounded-md border border-border p-3 space-y-2">
-                    <p className="text-xs font-medium flex items-center gap-1.5"><Camera className="h-3.5 w-3.5" /> Shoot Details</p>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div><span className="text-muted-foreground">Date:</span> {formatDate(detailProject.shoot.date)}</div>
-                      <div><span className="text-muted-foreground">Location:</span> {detailProject.shoot.location}</div>
-                      <div><span className="text-muted-foreground">Crew:</span> {detailProject.shoot.crew.join(', ')}</div>
-                      <div><span className="text-muted-foreground">Status:</span> {titleCase(detailProject.shoot.status)}</div>
-                    </div>
-                  </div>
-                )}
-
-                {detailProject.editor && (
-                  <div className="rounded-md border border-border p-3 flex items-center gap-3">
-                    <Avatar><AvatarFallback className="bg-secondary border border-border text-xs">{detailProject.editor.initials}</AvatarFallback></Avatar>
-                    <div>
-                      <p className="text-sm font-medium">{detailProject.editor.name}</p>
-                      <p className="text-xs text-muted-foreground">Assigned Editor</p>
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <p className="text-xs font-medium mb-2">Timeline</p>
-                  <div className="space-y-2.5">
-                    {detailProject.timeline.map((t) => (
-                      <div key={t.id} className="flex gap-3 text-sm">
-                        <div className="flex flex-col items-center">
-                          <div className="h-2 w-2 rounded-full bg-foreground/40 mt-1.5" />
-                          {t !== detailProject.timeline[detailProject.timeline.length - 1] && (
-                            <div className="w-px flex-1 bg-border mt-1" />
-                          )}
-                        </div>
-                        <div className="pb-1">
-                          <p className="font-medium">{t.event}</p>
-                          <p className="text-xs text-muted-foreground">{t.description}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">{t.actor} · {formatDate(t.timestamp)}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                {detailProject.status === 'payment_done' && (
-                  <Button onClick={() => { openShoot(detailProject); setDetailOpen(false); }}>
-                    <Camera className="mr-1.5 h-4 w-4" /> Schedule Shoot
-                  </Button>
-                )}
-                {detailProject.status === 'footage_received' && (
-                  <Button onClick={() => { openEditor(detailProject); setDetailOpen(false); }}>
-                    <Scissors className="mr-1.5 h-4 w-4" /> Assign Editor
-                  </Button>
-                )}
-                {detailProject.status === 'draft_sent' && (
-                  <Button onClick={() => approveDraft(detailProject)} disabled={triggering['draft.approved']}>
-                    <CheckCircle className="mr-1.5 h-4 w-4" /> Approve Draft
-                  </Button>
-                )}
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

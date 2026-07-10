@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/sheet';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2, Camera, ExternalLink } from 'lucide-react';
 import { formatINR } from '@/lib/formatter';
@@ -429,6 +430,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [approvingExtraId, setApprovingExtraId] = useState<string | null>(null);
   const [handoverId, setHandoverId] = useState<string | null>(null);
   const [extraCosts, setExtraCosts] = useState<Record<string, string>>({});
+  const [extraFeedback, setExtraFeedback] = useState<Record<string, string>>({});
   const [handoverNotes, setHandoverNotes] = useState<Record<string, string>>({});
   const [scheduleForm, setScheduleForm] = useState({
     shootDate: '',
@@ -960,15 +962,22 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       await postWebhook('/confirm-extra-revision', {
         edit_id: edit.editId,
         extra_revision_cost: extraCosts[edit.editId] ?? edit.extraRevisionCost,
+        feedback: extraFeedback[edit.editId] ?? '',
       });
       toast.success('Extra revision approved, editor notified!');
       setEditing((prev) =>
         prev.map((item) =>
           item.editId === edit.editId
-            ? { ...item, status: 'Extra Revision Approved', extraRevisionApproved: true }
+            ? {
+                ...item,
+                status: 'Extra Revision Approved',
+                extraRevisionApproved: true,
+                revisionFeedback: extraFeedback[edit.editId] ?? item.revisionFeedback,
+              }
             : item
         )
       );
+      setExtraFeedback((prev) => ({ ...prev, [edit.editId]: '' }));
       await refreshEditing(true);
     } catch (error) {
       toast.error('Failed to approve extra revision', {
@@ -1281,26 +1290,41 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
               </CardHeader>
               <CardContent className="space-y-2">
                 {extraRevisionNeeded.map((edit) => (
-                  <div key={edit.editId} className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[1fr_150px_180px_auto] lg:items-center">
-                    <div>
-                      <p className="text-sm font-medium">{edit.clientName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Revision {edit.revisionCount}/{edit.maxFreeRevisions} used
-                      </p>
+                  <div key={edit.editId} className="flex flex-col gap-3 rounded-md border border-border bg-background p-3">
+                    <div className="grid gap-3 lg:grid-cols-[1fr_150px_180px_auto] lg:items-center">
+                      <div>
+                        <p className="font-medium">{edit.clientName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Revision {edit.revisionCount}/{edit.maxFreeRevisions} used
+                        </p>
+                      </div>
+                      <Badge className="w-fit border-amber-500/40 bg-amber-500/15 text-amber-600">Needs quote</Badge>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Extra cost"
+                        value={extraCosts[edit.editId] ?? edit.extraRevisionCost}
+                        onChange={(event) =>
+                          setExtraCosts((prev) => ({ ...prev, [edit.editId]: event.target.value }))
+                        }
+                      />
+                      <Button size="sm" onClick={() => approveExtraRevision(edit)} disabled={approvingExtraId === edit.editId}>
+                        Confirm Extra Revision
+                      </Button>
                     </div>
-                    <Badge className="w-fit border-amber-500/40 bg-amber-500/15 text-amber-600">Needs quote</Badge>
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="Extra cost"
-                      value={extraCosts[edit.editId] ?? edit.extraRevisionCost}
-                      onChange={(event) =>
-                        setExtraCosts((prev) => ({ ...prev, [edit.editId]: event.target.value }))
-                      }
-                    />
-                    <Button size="sm" onClick={() => approveExtraRevision(edit)} disabled={approvingExtraId === edit.editId}>
-                      Confirm Extra Revision
-                    </Button>
+                    <div className="space-y-1.5 border-t border-amber-500/10 pt-2.5">
+                      <Label htmlFor={`extra-feedback-${edit.editId}`} className="text-xs font-semibold text-muted-foreground">Changes Required (Hand over to Editor)</Label>
+                      <Textarea
+                        id={`extra-feedback-${edit.editId}`}
+                        placeholder="Describe the changes needed..."
+                        rows={2}
+                        value={extraFeedback[edit.editId] ?? ''}
+                        onChange={(event) =>
+                          setExtraFeedback((prev) => ({ ...prev, [edit.editId]: event.target.value }))
+                        }
+                        className="text-xs bg-background"
+                      />
+                    </div>
                   </div>
                 ))}
               </CardContent>

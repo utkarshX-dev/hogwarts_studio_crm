@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatCard } from '@/components/shared/StatCard';
 import { Card, CardContent } from '@/components/ui/card';
+import { TableShimmer } from '@/components/shared/ShimmerLoader';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -147,6 +148,7 @@ function RevisionText(edit: EditingProject) {
 
 export default function EditorPage() {
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<EditingProject[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [draftLinks, setDraftLinks] = useState<Record<string, string>>({});
@@ -156,6 +158,7 @@ export default function EditorPage() {
   const [arrangingCallId, setArrangingCallId] = useState<string | null>(null);
   const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
   const [deliverableDone, setDeliverableDone] = useState<Record<string, Partial<Record<DeliverableKey, boolean>>>>({});
+  const [prevRevisions, setPrevRevisions] = useState<EditingProject[] | null>(null);
 
   const refreshEditing = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -178,18 +181,20 @@ export default function EditorPage() {
   }, []);
 
   useEffect(() => {
-    refreshEditing(true);
+    let mounted = true;
+    async function init() {
+      await refreshEditing(true);
+      if (mounted) setLoading(false);
+    }
+    init();
     const interval = setInterval(() => refreshEditing(true), 30000);
-    return () => clearInterval(interval);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, [refreshEditing]);
 
-  const editorEdits = useMemo(
-    () => {
-      if (user?.role === 'manager' || user?.role === 'admin') return editing;
-      return editing.filter((edit) => isSameEditor(edit, user?.name, user?.email));
-    },
-    [editing, user?.email, user?.name, user?.role]
-  );
+  const editorEdits = editing;
 
   const assigned = editorEdits.filter((edit) =>
     ['Editing', 'Extra Revision Approved'].includes(edit.status)
@@ -197,6 +202,30 @@ export default function EditorPage() {
   const drafts = editorEdits.filter((edit) => edit.status === 'Draft Sent');
   const revisions = editorEdits.filter((edit) => edit.status === 'Revision Requested');
   const delivered = editorEdits.filter((edit) => edit.status === 'Delivered' && edit.finalDelivered);
+
+  useEffect(() => {
+    if (prevRevisions !== null && revisions.length > prevRevisions.length) {
+      const newRev = revisions.find((r) => {
+        const prev = prevRevisions.find((p) => p.editId === r.editId);
+        return !prev || r.revisionCount > prev.revisionCount;
+      });
+      const editorName = newRev?.editorName || 'an editor';
+      toast.error(`New revision requested for ${editorName}!`, {
+        description: `Project "${newRev?.clientName || 'Untitled'}" (${newRev?.serviceType || 'Video'}) has a pending revision.`,
+        duration: 8000,
+      });
+    }
+    setPrevRevisions(revisions);
+  }, [revisions, prevRevisions]);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Editor" description="Deliverables queue and status tracking" />
+        <TableShimmer rows={6} cols={5} />
+      </div>
+    );
+  }
 
   const markDraftReady = async (edit: EditingProject) => {
     const draftLink = draftLinks[edit.editId] ?? '';
@@ -273,6 +302,18 @@ export default function EditorPage() {
         }
       />
 
+      {revisions.length > 0 && (
+        <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-600 flex items-start gap-3 animate-pulse">
+          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h4 className="font-semibold text-sm">Revision(s) Pending Attention</h4>
+            <p className="text-xs text-red-500/90 mt-1">
+              You have {revisions.length} project(s) currently requiring revisions. Please switch to the **Revisions** tab to check the feedback and submit your updated draft links.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <StatCard title="Assigned" value={assigned.length} icon={Scissors} />
         <StatCard title="Drafts Sent" value={drafts.length} icon={FileText} />
@@ -296,7 +337,10 @@ export default function EditorPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-medium">{edit.clientName}</p>
-                      <p className="text-sm text-muted-foreground">{edit.serviceType || 'Edit'}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {edit.serviceType || 'Edit'}
+                        {edit.editorName && ` · Editor: ${edit.editorName}`}
+                      </p>
                     </div>
                     <Badge variant="outline">{edit.status}</Badge>
                   </div>
@@ -359,8 +403,13 @@ export default function EditorPage() {
             {drafts.map((edit) => (
               <Card key={edit.editId}>
                 <CardContent className="p-4 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium">{edit.clientName}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{edit.clientName}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Editor: {edit.editorName || 'Unassigned'}
+                      </p>
+                    </div>
                     <Badge variant="outline">{RevisionText(edit)}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -389,7 +438,10 @@ export default function EditorPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-medium">{edit.clientName}</p>
-                      <p className="text-sm text-muted-foreground">{edit.serviceType || 'Edit'}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {edit.serviceType || 'Edit'}
+                        {edit.editorName && ` · Editor: ${edit.editorName}`}
+                      </p>
                     </div>
                     <Badge className="border-red-500/40 bg-red-500/15 text-red-600">
                       {RevisionText(edit)}
@@ -398,6 +450,12 @@ export default function EditorPage() {
                   <p className="text-xs text-muted-foreground">
                     Feedback source is expected from the Revisions sheet or n8n-enriched edit record.
                   </p>
+                  {edit.revisionFeedback && (
+                    <div className="rounded-md bg-muted p-2.5 text-sm border border-border">
+                      <p className="font-medium text-xs text-muted-foreground mb-1">Client / Manager Revision Feedback:</p>
+                      <p className="text-xs text-foreground whitespace-pre-wrap">{edit.revisionFeedback}</p>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor={`revision-draft-${edit.editId}`}>Updated Draft Link</Label>
                     <Input
@@ -464,11 +522,16 @@ export default function EditorPage() {
             {delivered.map((edit) => (
               <Card key={edit.editId}>
                 <CardContent className="p-4 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium">{edit.clientName}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{edit.clientName}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {edit.serviceType || 'Completed project'}
+                        {edit.editorName && ` · Editor: ${edit.editorName}`}
+                      </p>
+                    </div>
                     <Badge className="border-green-500/40 bg-green-500/15 text-green-600">Delivered</Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground">{edit.serviceType || 'Completed project'}</p>
                   {edit.currentDraftLink && (
                     <a href={edit.currentDraftLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-[#58A6FF] hover:underline">
                       <CheckCircle className="h-3 w-3" />
