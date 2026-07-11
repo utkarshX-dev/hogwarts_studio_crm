@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { StatCard } from '@/components/shared/StatCard';
 import { Card, CardContent } from '@/components/ui/card';
@@ -158,7 +158,10 @@ export default function EditorPage() {
   const [arrangingCallId, setArrangingCallId] = useState<string | null>(null);
   const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
   const [deliverableDone, setDeliverableDone] = useState<Record<string, Partial<Record<DeliverableKey, boolean>>>>({});
-  const [prevRevisions, setPrevRevisions] = useState<EditingProject[] | null>(null);
+  // Keep the previous server snapshot outside render state. `revisions` is a
+  // newly filtered array on every render, so storing it in state here would
+  // trigger this effect again indefinitely.
+  const prevRevisionsRef = useRef<EditingProject[] | null>(null);
 
   const refreshEditing = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -204,6 +207,7 @@ export default function EditorPage() {
   const delivered = editorEdits.filter((edit) => edit.status === 'Delivered' && edit.finalDelivered);
 
   useEffect(() => {
+    const prevRevisions = prevRevisionsRef.current;
     if (prevRevisions !== null && revisions.length > prevRevisions.length) {
       const newRev = revisions.find((r) => {
         const prev = prevRevisions.find((p) => p.editId === r.editId);
@@ -215,8 +219,8 @@ export default function EditorPage() {
         duration: 8000,
       });
     }
-    setPrevRevisions(revisions);
-  }, [revisions, prevRevisions]);
+    prevRevisionsRef.current = revisions;
+  }, [revisions]);
 
   if (loading) {
     return (
