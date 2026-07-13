@@ -11,7 +11,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Textarea } from '@/components/ui/textarea';
 import {
   AlertCircle,
   CheckCircle,
@@ -152,11 +151,8 @@ export default function EditorPage() {
   const [editing, setEditing] = useState<EditingProject[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [draftLinks, setDraftLinks] = useState<Record<string, string>>({});
-  const [feedback, setFeedback] = useState<Record<string, string>>({});
-  const [feedbackForms, setFeedbackForms] = useState<Record<string, boolean>>({});
   const [submittingDraftId, setSubmittingDraftId] = useState<string | null>(null);
   const [arrangingCallId, setArrangingCallId] = useState<string | null>(null);
-  const [submittingFeedbackId, setSubmittingFeedbackId] = useState<string | null>(null);
   const [deliverableDone, setDeliverableDone] = useState<Record<string, Partial<Record<DeliverableKey, boolean>>>>({});
   // Keep the previous server snapshot outside render state. `revisions` is a
   // newly filtered array on every render, so storing it in state here would
@@ -262,35 +258,12 @@ export default function EditorPage() {
         editor_name: edit.editorName,
       });
       toast.success('Sales rep has been notified to arrange a call.');
-      setFeedbackForms((prev) => ({ ...prev, [edit.editId]: true }));
     } catch (error) {
       toast.error('Failed to request call', {
         description: error instanceof Error ? error.message : 'Unknown error',
       });
     } finally {
       setArrangingCallId(null);
-    }
-  };
-
-  const submitFeedback = async (edit: EditingProject) => {
-    setSubmittingFeedbackId(edit.editId);
-    try {
-      await postWebhook('/submit-revision-feedback', {
-        edit_id: edit.editId,
-        feedback: feedback[edit.editId] ?? '',
-        client_email: edit.emailId,
-        submitted_by: 'editor',
-      });
-      toast.success("Feedback submitted on client's behalf.");
-      setFeedback((prev) => ({ ...prev, [edit.editId]: '' }));
-      setFeedbackForms((prev) => ({ ...prev, [edit.editId]: false }));
-      await refreshEditing(true);
-    } catch (error) {
-      toast.error('Failed to submit feedback', {
-        description: error instanceof Error ? error.message : 'Unknown error',
-      });
-    } finally {
-      setSubmittingFeedbackId(null);
     }
   };
 
@@ -451,14 +424,15 @@ export default function EditorPage() {
                       {RevisionText(edit)}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Feedback source is expected from the Revisions sheet or n8n-enriched edit record.
-                  </p>
-                  {edit.revisionFeedback && (
+                  {edit.revisionFeedback ? (
                     <div className="rounded-md bg-muted p-2.5 text-sm border border-border">
                       <p className="font-medium text-xs text-muted-foreground mb-1">Client / Manager Revision Feedback:</p>
                       <p className="text-xs text-foreground whitespace-pre-wrap">{edit.revisionFeedback}</p>
                     </div>
+                  ) : (
+                    <p className="text-xs text-amber-600/80 italic">
+                      No feedback submitted yet. Please arrange a call with the client if clarification is needed.
+                    </p>
                   )}
                   <div className="space-y-2">
                     <Label htmlFor={`revision-draft-${edit.editId}`}>Updated Draft Link</Label>
@@ -484,34 +458,7 @@ export default function EditorPage() {
                       <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
                       Arrange Call
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setFeedbackForms((prev) => ({ ...prev, [edit.editId]: !prev[edit.editId] }))}
-                    >
-                      Fill Feedback
-                    </Button>
                   </div>
-                  {feedbackForms[edit.editId] && (
-                    <div className="space-y-2 border-t border-border pt-3">
-                      <Label htmlFor={`feedback-${edit.editId}`}>Client Feedback</Label>
-                      <Textarea
-                        id={`feedback-${edit.editId}`}
-                        rows={3}
-                        value={feedback[edit.editId] ?? ''}
-                        onChange={(event) =>
-                          setFeedback((prev) => ({ ...prev, [edit.editId]: event.target.value }))
-                        }
-                      />
-                      <Button
-                        size="sm"
-                        onClick={() => submitFeedback(edit)}
-                        disabled={!feedback[edit.editId] || submittingFeedbackId === edit.editId}
-                      >
-                        Submit Feedback
-                      </Button>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             ))}

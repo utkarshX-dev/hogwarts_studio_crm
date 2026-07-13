@@ -54,9 +54,9 @@ import { cn } from '@/lib/utils';
 import { findAssignedSalespersonEmail, findClientEmail, isExtraRevisionNeeded, postWebhook } from '@/lib/editing';
 
 const PROPOSAL_WEBHOOK_URL =
-  'https://hogwartsautomation.app.n8n.cloud/webhook/send-proposal';
+  'https://n8n.hogwartsstudios.com/webhook/send-proposal';
 const SCHEDULE_SHOOT_WEBHOOK_URL =
-  'https://hogwartsautomation.app.n8n.cloud/webhook/schedule-shoot';
+  'https://n8n.hogwartsstudios.com/webhook/schedule-shoot';
 
 const DEFAULT_ASSIGNED_TO = MOCK_USERS.manager.name;
 

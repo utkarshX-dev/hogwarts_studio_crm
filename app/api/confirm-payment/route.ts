@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 const CONFIRM_PAYMENT_WEBHOOK_URL =
   process.env.N8N_CONFIRM_PAYMENT_WEBHOOK_URL ??
-  'https://hogwartsautomation.app.n8n.cloud/webhook/confirm-payment-link';
+  'https://n8n.hogwartsstudios.com/webhook/confirm-payment-link';
 
 export async function POST(request: Request) {
   try {

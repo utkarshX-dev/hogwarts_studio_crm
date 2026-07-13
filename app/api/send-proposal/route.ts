@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 const PROPOSAL_WEBHOOK_URL =
   process.env.N8N_SEND_PROPOSAL_WEBHOOK_URL ??
-  'https://hogwartsautomation.app.n8n.cloud/webhook/send-proposal';
+  'https://n8n.hogwartsstudios.com/webhook/send-proposal';
 
 export async function POST(request: Request) {
   try {
