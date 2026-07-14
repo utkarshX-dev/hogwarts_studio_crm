@@ -53,8 +53,6 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { findAssignedSalespersonEmail, findClientEmail, isExtraRevisionNeeded, postWebhook } from '@/lib/editing';
 
-const PROPOSAL_WEBHOOK_URL =
-  'https://n8n.hogwartsstudios.com/webhook/send-proposal';
 const SCHEDULE_SHOOT_WEBHOOK_URL =
   'https://n8n.hogwartsstudios.com/webhook/schedule-shoot';
 
@@ -101,6 +99,9 @@ type ProposalForm = {
   clientEmail: string;
   cost: string;
   notes: string;
+  camera: string;
+  recordTime: string;
+  studioTime: string;
 } & Record<DeliverableKey, string>;
 
 const DEFAULT_DELIVERABLES: Record<DeliverableKey, string> = {
@@ -417,6 +418,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     clientEmail: '',
     cost: '',
     notes: '',
+    camera: '',
+    recordTime: '',
+    studioTime: '',
     ...DEFAULT_DELIVERABLES,
   });
   const [paymentLinkOpen, setPaymentLinkOpen] = useState(false);
@@ -553,6 +557,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   }, [salesLeads, filterTab]);
 
   const openProposalModal = (lead: Lead) => {
+    const shoot = shootsByLeadId.get(lead.leadId);
     setSelected(lead);
     setProposalForm({
       clientEmail: lead.clientEmail,
@@ -566,6 +571,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       teaser: lead.teaser || '0',
       thumbnail: lead.thumbnail || '0',
       notes: lead.serviceNotes || lead.servicePitched,
+      camera: shoot?.camera || '',
+      recordTime: shoot?.recordTime || '',
+      studioTime: shoot?.studioTime || '',
     });
     setProposalOpen(true);
   };
@@ -654,11 +662,13 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
 
     setSubmittingProposal(true);
     try {
-      const response = await fetch(PROPOSAL_WEBHOOK_URL, {
+      const shoot = shootsByLeadId.get(selected.leadId);
+      const response = await fetch('/api/send-proposal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           lead_id: selected.leadId,
+          shoot_id: shoot?.shootId ?? '',
           client_name: selected.name,
           client_email: proposalForm.clientEmail,
           client_phone: selected.phoneNumber,
@@ -666,6 +676,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
           service_notes: serviceNotes,
           ...deliverablesPayload,
           cost: proposalForm.cost,
+          camera: proposalForm.camera,
+          record_time: proposalForm.recordTime,
+          studio_time: proposalForm.studioTime,
           salesperson_name: selected.assignedTo,
         }),
       });
@@ -1428,6 +1441,41 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                       setProposalForm((prev) => ({ ...prev, notes: e.target.value }))
                     }
                     placeholder="e.g. Podcast for KKB, Reels for Instagram campaign..."
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="proposal-camera">Camera Setup</Label>
+                  <Input
+                    id="proposal-camera"
+                    value={proposalForm.camera}
+                    onChange={(e) =>
+                      setProposalForm((prev) => ({ ...prev, camera: e.target.value }))
+                    }
+                    placeholder="e.g. 2 cameras"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="proposal-record-time">Record Time</Label>
+                  <Input
+                    id="proposal-record-time"
+                    value={proposalForm.recordTime}
+                    onChange={(e) =>
+                      setProposalForm((prev) => ({ ...prev, recordTime: e.target.value }))
+                    }
+                    placeholder="e.g. 2 hours"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="proposal-studio-time">Studio Time</Label>
+                  <Input
+                    id="proposal-studio-time"
+                    value={proposalForm.studioTime}
+                    onChange={(e) =>
+                      setProposalForm((prev) => ({ ...prev, studioTime: e.target.value }))
+                    }
+                    placeholder="e.g. 3 hours"
                   />
                 </div>
               </div>

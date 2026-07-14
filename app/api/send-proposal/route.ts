@@ -23,6 +23,7 @@ export async function POST(request: Request) {
 
     const payload = {
       lead_id,
+      shoot_id: String(body.shoot_id ?? '').trim(),
       client_name: String(body.client_name ?? '').trim(),
       client_email,
       client_phone: String(body.client_phone ?? '').trim(),
@@ -37,6 +38,9 @@ export async function POST(request: Request) {
       teaser: String(body.teaser ?? '0').trim(),
       thumbnail: String(body.thumbnail ?? '0').trim(),
       cost: String(body.cost ?? '').trim(),
+      camera: String(body.camera ?? '').trim(),
+      record_time: String(body.record_time ?? '').trim(),
+      studio_time: String(body.studio_time ?? '').trim(),
       salesperson_name: String(body.salesperson_name ?? '').trim(),
     };
 

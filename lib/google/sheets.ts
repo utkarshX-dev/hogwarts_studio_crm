@@ -9,11 +9,19 @@ const CLIENTS_SHEET = 'Clients';
 const PAYMENTS_SHEET = 'Payments';
 const SHOOT_SHEET = 'Shoot';
 const EDITING_SHEET = 'Editing';
+const REVISIONS_SHEET = 'Revisions';
 const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:X`;
 const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:X`;
 const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
 const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
 const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AH`;
+const REVISIONS_READ_RANGE = `${REVISIONS_SHEET}!A2:J`;
+
+export interface RevisionEntry {
+  projectId: string;
+  feedback: string;
+  timestamp: string;
+}
 
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
@@ -178,8 +186,18 @@ function rowToEditingProject(row: string[]): EditingProject | null {
     deadlineAt: row[29]?.trim() ?? '',
     deadlineNotified: row[30]?.trim() ?? '',
     finalDelivered: parseBoolean(row[31]),
-    revisionFeedback: row[33]?.trim() ?? '',
     searchText: `${clientName} ${editorName} ${serviceType} ${leadId}`.toLowerCase(),
+  };
+}
+
+function rowToRevisionEntry(row: string[]): RevisionEntry | null {
+  const projectId = row[0]?.trim();
+  if (!projectId) return null;
+
+  return {
+    projectId,
+    feedback: row[4]?.trim() ?? '',
+    timestamp: row[9]?.trim() ?? '',
   };
 }
 
@@ -320,6 +338,21 @@ export async function fetchEditingFromSheet(): Promise<EditingProject[]> {
   return rows
     .map((row) => rowToEditingProject(row as string[]))
     .filter((project): project is EditingProject => project !== null);
+}
+
+export async function fetchRevisionsFromSheet(): Promise<RevisionEntry[]> {
+  const sheets = getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: REVISIONS_READ_RANGE,
+  });
+
+  const rows = response.data.values ?? [];
+
+  return rows
+    .map((row) => rowToRevisionEntry(row as string[]))
+    .filter((revision): revision is RevisionEntry => revision !== null);
 }
 
 export async function fetchLeadsWithPayments(): Promise<Lead[]> {
