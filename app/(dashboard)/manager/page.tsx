@@ -17,11 +17,9 @@ import {
 import {
   Briefcase, Camera, Scissors, CheckCircle, ExternalLink,
 } from 'lucide-react';
-import { PROJECTS, EDITORS } from '@/lib/mock-data';
 import { formatINR, formatDate } from '@/lib/formatter';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { useAuth } from '@/lib/auth-context';
-import type { Project } from '@/lib/types';
 import type { EditingProject, Lead, Shoot } from '@/lib/sheets/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -437,10 +435,12 @@ export default function ManagerPage() {
     }
   };
 
-  const activeProjects = PROJECTS.filter((p) => !['closed', 'delivered'].includes(p.status)).length;
-  const pendingApprovals = PROJECTS.filter((p) => p.status === 'draft_sent').length;
-  const availableEditors = EDITORS.filter((e) => e.status === 'available').length;
-  const scheduledShoots = PROJECTS.filter((p) => p.shoot?.status === 'scheduled').length;
+  const activeProjects = leads.filter(
+    (lead) => lead.proposalAccepted && !['closed', 'delivered'].includes(lead.status.trim().toLowerCase())
+  ).length;
+  const pendingApprovals = editing.filter((edit) => edit.status === 'Draft Sent').length;
+  const availableEditors = editorWorkload.filter((workload) => workloadLevel(workload.totalDeliverables) === 'Free').length;
+  const scheduledShoots = shoots.length;
   const footageReady = useMemo(
     () => {
       const assignedShootIds = new Set(editing.map((edit) => edit.shootId).filter(Boolean));

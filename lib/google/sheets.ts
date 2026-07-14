@@ -254,11 +254,15 @@ function generateLeadId(): string {
 }
 
 function formatLeadDate(date: Date): string {
-  return date.toLocaleDateString('en-IN', {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
-  });
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
