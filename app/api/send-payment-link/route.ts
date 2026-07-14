@@ -26,6 +26,11 @@ export async function POST(request: Request) {
       client_name: String(body.client_name ?? '').trim(),
       client_email,
       cost: String(body.cost ?? '').trim(),
+      total_cost: Number(body.total_cost ?? 0),
+      amount_to_collect: Number(body.amount_to_collect ?? 0),
+      remaining_amount: Number(body.remaining_amount ?? 0),
+      payment_percentage: Number(body.payment_percentage ?? 0),
+      payment_type: String(body.payment_type ?? '').trim(),
       salesperson_name: String(body.salesperson_name ?? '').trim(),
       salesperson_email: String(body.salesperson_email ?? '').trim(),
     };

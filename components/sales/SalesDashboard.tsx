@@ -425,6 +425,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   });
   const [paymentLinkOpen, setPaymentLinkOpen] = useState(false);
   const [paymentLead, setPaymentLead] = useState<Lead | null>(null);
+  const [paymentOption, setPaymentOption] = useState<'50' | '100' | 'custom'>('50');
+  const [customPercent, setCustomPercent] = useState(30);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
   const [verifyingLeadId, setVerifyingLeadId] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -754,6 +756,22 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const handleSendPaymentLink = async () => {
     if (!paymentLead || !user) return;
 
+    const totalCost = parseCost(paymentLead.cost);
+    const percentage = paymentOption === 'custom' ? customPercent : Number(paymentOption);
+
+    if (!Number.isFinite(totalCost) || totalCost <= 0) {
+      toast.error('A valid project cost is required before sending a payment link');
+      return;
+    }
+
+    if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) {
+      toast.error('Custom advance percentage must be between 1 and 100');
+      return;
+    }
+
+    const amountToCollect = Number(((totalCost * percentage) / 100).toFixed(2));
+    const remainingAmount = Number((totalCost - amountToCollect).toFixed(2));
+
     setSendingPaymentLink(true);
     try {
       const response = await fetch('/api/send-payment-link', {
@@ -764,6 +782,11 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
           client_name: paymentLead.name,
           client_email: paymentLead.clientEmail,
           cost: paymentLead.cost,
+          total_cost: totalCost,
+          amount_to_collect: amountToCollect,
+          remaining_amount: remainingAmount,
+          payment_percentage: percentage,
+          payment_type: percentage === 100 ? 'Full Payment' : 'Advance Payment',
           salesperson_name: paymentLead.assignedTo,
           salesperson_email: user.email,
         }),
@@ -888,6 +911,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
           onClick={(e) => {
             e.stopPropagation();
             setPaymentLead(lead);
+            setPaymentOption('50');
+            setCustomPercent(30);
             setPaymentLinkOpen(true);
           }}
         >
@@ -1539,6 +1564,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             </DialogDescription>
           </DialogHeader>
           {paymentLead && (
+            <>
             <div className="rounded-md border border-border p-3 space-y-1 text-sm">
               <p className="font-medium">{paymentLead.name}</p>
               <p className="text-muted-foreground">{paymentLead.clientEmail}</p>
@@ -1546,6 +1572,51 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                 Amount: {paymentLead.cost ? formatINR(parseCost(paymentLead.cost)) : '—'}
               </p>
             </div>
+              <fieldset className="space-y-3">
+                <legend className="text-sm font-medium">Advance Payment Type</legend>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {[
+                    { value: '50', label: '50% Advance' },
+                    { value: '100', label: '100% Full Payment' },
+                    { value: 'custom', label: 'Custom %' },
+                  ].map((option) => (
+                    <Label key={option.value} className="flex cursor-pointer items-center gap-2 font-normal">
+                      <input
+                        type="radio"
+                        name="payment-option"
+                        value={option.value}
+                        checked={paymentOption === option.value}
+                        onChange={() => setPaymentOption(option.value as '50' | '100' | 'custom')}
+                      />
+                      {option.label}
+                    </Label>
+                  ))}
+                </div>
+                {paymentOption === 'custom' && (
+                  <div className="max-w-40 space-y-2">
+                    <Label htmlFor="custom-payment-percent">Custom percentage</Label>
+                    <Input
+                      id="custom-payment-percent"
+                      type="number"
+                      min="1"
+                      max="100"
+                      step="1"
+                      value={customPercent}
+                      onChange={(e) => setCustomPercent(Number(e.target.value))}
+                      placeholder="e.g. 40"
+                    />
+                  </div>
+                )}
+              </fieldset>
+              <div className="rounded-md bg-muted p-3 text-sm space-y-1 tabular-nums">
+                <p>
+                  Amount to collect: {formatINR((parseCost(paymentLead.cost) * (paymentOption === 'custom' ? customPercent : Number(paymentOption))) / 100)}
+                </p>
+                <p className="text-muted-foreground">
+                  Remaining balance: {formatINR(parseCost(paymentLead.cost) - (parseCost(paymentLead.cost) * (paymentOption === 'custom' ? customPercent : Number(paymentOption))) / 100)}
+                </p>
+              </div>
+            </>
           )}
           <DialogFooter>
             <Button
