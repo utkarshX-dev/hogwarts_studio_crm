@@ -32,7 +32,6 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2, Camera, ExternalLink } from 'lucide-react';
 import { formatINR } from '@/lib/formatter';
 import { useAuth } from '@/lib/auth-context';
-import { MOCK_USERS } from '@/lib/auth';
 import type { EditingProject, Lead, LeadFilterTab, Shoot } from '@/lib/sheets/types';
 import {
   canSendPaymentLink,
@@ -58,7 +57,8 @@ const SCHEDULE_SHOOT_WEBHOOK_URL =
 const FINAL_PAYMENT_COMPLETED_WEBHOOK_URL =
   'https://n8n.hogwartsstudios.com/webhook/final-payment-completed';
 
-const DEFAULT_ASSIGNED_TO = MOCK_USERS.manager.name;
+const SALES_MEMBERS = ['Isha', 'Deepak', 'Krishan'] as const;
+const DEFAULT_ASSIGNED_TO = SALES_MEMBERS[0];
 
 const FILTER_TABS: { value: LeadFilterTab; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -420,7 +420,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [creatingLead, setCreatingLead] = useState(false);
   const [newLeadService, setNewLeadService] = useState('podcast');
   const [reachoutDone, setReachoutDone] = useState<'yes' | 'no'>('no');
-  const [assignedTo, setAssignedTo] = useState(DEFAULT_ASSIGNED_TO);
+  const [assignedTo, setAssignedTo] = useState<string>(DEFAULT_ASSIGNED_TO);
   const [proposalOpen, setProposalOpen] = useState(false);
   const [leadOpen, setLeadOpen] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
@@ -1928,13 +1928,18 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             </div>
             <div className="space-y-2">
               <Label htmlFor="assignTo">Assign To</Label>
-              <Input
-                id="assignTo"
-                name="assignTo"
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-                required
-              />
+              <Select value={assignedTo} onValueChange={setAssignedTo} name="assignTo" required>
+                <SelectTrigger id="assignTo">
+                  <SelectValue placeholder="Select sales member" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SALES_MEMBERS.map((member) => (
+                    <SelectItem key={member} value={member}>
+                      {member}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="reachoutDone">Reachout Done</Label>
