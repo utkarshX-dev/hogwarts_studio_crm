@@ -55,6 +55,8 @@ import { findAssignedSalespersonEmail, findClientEmail, isExtraRevisionNeeded, p
 
 const SCHEDULE_SHOOT_WEBHOOK_URL =
   'https://n8n.hogwartsstudios.com/webhook/schedule-shoot';
+const FINAL_PAYMENT_COMPLETED_WEBHOOK_URL =
+  'https://n8n.hogwartsstudios.com/webhook/final-payment-completed';
 
 const DEFAULT_ASSIGNED_TO = MOCK_USERS.manager.name;
 
@@ -189,6 +191,16 @@ function isShootEligible(lead: Lead) {
 function isPaymentComplete(lead: Lead) {
   const paymentStatus = lead.payment_status ?? lead.payment?.paymentStatus ?? '';
   return isShootEligible(lead) || ['Payment Confirmed', 'Payment Verified'].includes(paymentStatus);
+}
+
+function isFinalPaymentCompleted(lead: Lead) {
+  const statuses = [lead.status, lead.payment_status, lead.payment?.paymentStatus]
+    .filter((status): status is string => Boolean(status))
+    .map((status) => status.trim().toLowerCase());
+
+  return statuses.some((status) =>
+    ['final payment completed', 'full payment completed', 'payment completed'].includes(status)
+  );
 }
 
 function dateKey(date: Date) {
@@ -429,6 +441,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [customPercent, setCustomPercent] = useState(30);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
   const [verifyingLeadId, setVerifyingLeadId] = useState<string | null>(null);
+  const [completingFinalPaymentId, setCompletingFinalPaymentId] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleLead, setScheduleLead] = useState<Lead | null>(null);
   const [schedulingShoot, setSchedulingShoot] = useState(false);
@@ -858,6 +871,47 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     }
   };
 
+  const handleFinalPaymentCompleted = async (lead: Lead) => {
+    const totalCost = parseCost(lead.cost);
+
+    if (!Number.isFinite(totalCost) || totalCost <= 0) {
+      toast.error('A valid project cost is required before completing the final payment');
+      return;
+    }
+
+    setCompletingFinalPaymentId(lead.leadId);
+    try {
+      const response = await fetch(FINAL_PAYMENT_COMPLETED_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead_id: lead.leadId,
+          total_cost: totalCost,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to mark final payment as completed');
+      }
+
+      setLeads((prev) =>
+        prev.map((item) =>
+          item.leadId === lead.leadId
+            ? { ...item, payment_status: 'Final Payment Completed' }
+            : item
+        )
+      );
+      toast.success('Final Payment Marked as Completed');
+      await refreshLeads(true);
+    } catch (error) {
+      toast.error('Failed to mark final payment as completed', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setCompletingFinalPaymentId(null);
+    }
+  };
+
   const renderProposalAction = (lead: Lead) => {
     if (lead.proposalAccepted) {
       return (
@@ -1072,6 +1126,27 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     );
   };
 
+  const renderFinalPaymentAction = (lead: Lead) => {
+    if (isFinalPaymentCompleted(lead)) return null;
+
+    const isCompleting = completingFinalPaymentId === lead.leadId;
+
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={isCompleting}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleFinalPaymentCompleted(lead);
+        }}
+      >
+        {isCompleting && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+        Final Payment Completed ✓
+      </Button>
+    );
+  };
+
   const renderStatusCell = (lead: Lead) => (
     <div className="flex flex-col gap-1.5">
       <LeadStatusBadge status={lead.status} />
@@ -1092,6 +1167,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     <div className="flex flex-col gap-1.5 items-start">
       {renderProposalAction(lead)}
       {renderPaymentAction(lead)}
+      {renderFinalPaymentAction(lead)}
       {renderScheduleAction(lead)}
     </div>
   );
