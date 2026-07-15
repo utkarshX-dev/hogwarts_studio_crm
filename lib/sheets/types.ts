@@ -80,13 +80,14 @@ export interface Lead {
   shortFormatDuration: string;
   additionalNotes: string;
   salesNotes: string;
+  proposalRevokeReason: string;
   serialNo: number;
   searchText: string;
   payment: Payment | null;
   payment_status?: string;
 }
 
-export type LeadFilterTab = 'all' | 'new_leads' | 'proposal_sent' | 'accepted';
+export type LeadFilterTab = 'all' | 'new_leads' | 'proposal_sent' | 'revoked' | 'accepted';
 
 export interface Shoot {
   id: string;
@@ -173,6 +174,12 @@ export const LEAD_STATUS_META: Record<
     color: '#D29922',
     bg: 'rgba(210,153,34,0.12)',
     border: 'rgba(210,153,34,0.3)',
+  },
+  'Proposal Revoked': {
+    label: 'Proposal Revoked',
+    color: '#E57C2B',
+    bg: 'rgba(229,124,43,0.12)',
+    border: 'rgba(229,124,43,0.3)',
   },
   'Proposal Accepted': {
     label: 'Proposal Accepted',

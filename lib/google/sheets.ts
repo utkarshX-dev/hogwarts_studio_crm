@@ -33,7 +33,12 @@ function parseProposalAccepted(value: string | undefined): boolean {
   return value.trim().toLowerCase() === 'true';
 }
 
-function rowToLead(row: string[], index: number, salesNotesColumn = -1): Lead | null {
+function rowToLead(
+  row: string[],
+  index: number,
+  salesNotesColumn = -1,
+  proposalRevokeReasonColumn = -1
+): Lead | null {
   const leadId = row[0]?.trim();
   if (!leadId) return null;
 
@@ -80,6 +85,8 @@ function rowToLead(row: string[], index: number, salesNotesColumn = -1): Lead | 
     shortFormatDuration: row[29]?.trim() ?? '',
     additionalNotes: row[30]?.trim() ?? '',
     salesNotes: salesNotesColumn >= 0 ? row[salesNotesColumn]?.trim() ?? '' : '',
+    proposalRevokeReason:
+      proposalRevokeReasonColumn >= 0 ? row[proposalRevokeReasonColumn]?.trim() ?? '' : '',
     serialNo: index + 1,
     searchText: `${name} ${phoneNumber}`.toLowerCase(),
     payment: null,
@@ -404,9 +411,14 @@ export async function fetchClientsFromSheet(): Promise<Lead[]> {
   const salesNotesColumn = (headers as string[]).findIndex(
     (header) => header.trim().toLowerCase() === 'sales_notes'
   );
+  const proposalRevokeReasonColumn = (headers as string[]).findIndex(
+    (header) => header.trim().toLowerCase() === 'proposal_revoke_reason'
+  );
 
   return rows
-    .map((row, index) => rowToLead(row as string[], index, salesNotesColumn))
+    .map((row, index) =>
+      rowToLead(row as string[], index, salesNotesColumn, proposalRevokeReasonColumn)
+    )
     .filter((lead): lead is Lead => lead !== null);
 }
 
@@ -485,6 +497,7 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
     shortFormatDuration: input.shortFormatDuration?.trim() ?? '',
     additionalNotes: input.additionalNotes?.trim() ?? '',
     salesNotes: input.salesNotes?.trim() ?? '',
+    proposalRevokeReason: '',
     serialNo: existingLeads.length + 1,
     searchText: `${input.name.trim()} ${input.phoneNumber.trim()}`.toLowerCase(),
     payment: null,

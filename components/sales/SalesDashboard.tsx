@@ -75,6 +75,7 @@ const FILTER_TABS: { value: LeadFilterTab; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'new_leads', label: 'New Leads' },
   { value: 'proposal_sent', label: 'Proposal Sent' },
+  { value: 'revoked', label: 'Revoked' },
   { value: 'accepted', label: 'Accepted' },
 ];
 
@@ -577,6 +578,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
         return salesLeads.filter((lead) => lead.status === 'New Lead');
       case 'proposal_sent':
         return salesLeads.filter((lead) => lead.status === 'Proposal Sent');
+      case 'revoked':
+        return salesLeads.filter((lead) => lead.status === 'Proposal Revoked');
       case 'accepted':
         return salesLeads.filter((lead) => lead.proposalAccepted);
       default:
@@ -941,7 +944,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       );
     }
 
-    if (lead.status === 'New Lead') {
+    if (lead.status === 'New Lead' || lead.status === 'Proposal Revoked') {
       return (
         <Button
           variant="outline"
@@ -1170,6 +1173,11 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const renderStatusCell = (lead: Lead) => (
     <div className="flex flex-col gap-1.5">
       <LeadStatusBadge status={lead.status} />
+      {lead.status === 'Proposal Revoked' && (
+        <span className="max-w-56 text-xs italic text-muted-foreground">
+          Reason: {lead.proposalRevokeReason || 'No reason provided'}
+        </span>
+      )}
       {(lead.status === 'Proposal Sent' || lead.proposalSent.toLowerCase() === 'true') &&
         salesDeliverableSummary(lead).length > 0 && (
           <span className="text-xs text-muted-foreground">
