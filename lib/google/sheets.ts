@@ -14,7 +14,7 @@ const REVISIONS_SHEET = 'Revisions';
 // table is essential: Google Sheets uses the supplied range to find the table
 // it appends to. A shorter range caused new rows to be appended from column V
 // (`teaser_edit`) rather than from column A (`lead_id`).
-const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:AE`;
+const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A1:AZ`;
 const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
 const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
 const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AH`;
@@ -33,7 +33,7 @@ function parseProposalAccepted(value: string | undefined): boolean {
   return value.trim().toLowerCase() === 'true';
 }
 
-function rowToLead(row: string[], index: number): Lead | null {
+function rowToLead(row: string[], index: number, salesNotesColumn = -1): Lead | null {
   const leadId = row[0]?.trim();
   if (!leadId) return null;
 
@@ -79,6 +79,7 @@ function rowToLead(row: string[], index: number): Lead | null {
     longFormatDuration: row[28]?.trim() ?? '',
     shortFormatDuration: row[29]?.trim() ?? '',
     additionalNotes: row[30]?.trim() ?? '',
+    salesNotes: salesNotesColumn >= 0 ? row[salesNotesColumn]?.trim() ?? '' : '',
     serialNo: index + 1,
     searchText: `${name} ${phoneNumber}`.toLowerCase(),
     payment: null,
@@ -399,10 +400,13 @@ export async function fetchClientsFromSheet(): Promise<Lead[]> {
     range: CLIENTS_READ_RANGE,
   });
 
-  const rows = response.data.values ?? [];
+  const [headers = [], ...rows] = response.data.values ?? [];
+  const salesNotesColumn = (headers as string[]).findIndex(
+    (header) => header.trim().toLowerCase() === 'sales_notes'
+  );
 
   return rows
-    .map((row, index) => rowToLead(row as string[], index))
+    .map((row, index) => rowToLead(row as string[], index, salesNotesColumn))
     .filter((lead): lead is Lead => lead !== null);
 }
 
@@ -480,6 +484,7 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
     longFormatDuration: input.longFormatDuration?.trim() ?? '',
     shortFormatDuration: input.shortFormatDuration?.trim() ?? '',
     additionalNotes: input.additionalNotes?.trim() ?? '',
+    salesNotes: input.salesNotes?.trim() ?? '',
     serialNo: existingLeads.length + 1,
     searchText: `${input.name.trim()} ${input.phoneNumber.trim()}`.toLowerCase(),
     payment: null,

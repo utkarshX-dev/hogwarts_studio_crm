@@ -59,6 +59,17 @@ const FINAL_PAYMENT_COMPLETED_WEBHOOK_URL =
 
 const SALES_MEMBERS = ['Isha', 'Deepak', 'Krishan'] as const;
 const DEFAULT_ASSIGNED_TO = SALES_MEMBERS[0];
+const SERVICE_NOTE_OPTIONS = [
+  'Podcast',
+  'Solo content shoot',
+  'Outdoor shoot',
+  'Product',
+  'Fashion',
+  'Only space',
+  'Only editing',
+  'Only marketing',
+  'End to End',
+] as const;
 
 const FILTER_TABS: { value: LeadFilterTab; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -98,7 +109,8 @@ type DeliverableKey = (typeof DELIVERABLE_FIELDS)[number]['key'];
 type ProposalForm = {
   clientEmail: string;
   cost: string;
-  notes: string;
+  serviceNotes: string;
+  salesNotes: string;
   camera: string;
   recordTime: string;
   studioTime: string;
@@ -427,7 +439,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [proposalForm, setProposalForm] = useState<ProposalForm>({
     clientEmail: '',
     cost: '',
-    notes: '',
+    serviceNotes: '',
+    salesNotes: '',
     camera: '',
     recordTime: '',
     studioTime: '',
@@ -583,7 +596,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       shortFormatVideo: '0',
       teaserEdit: lead.teaserDemo || '0',
       thumbnailEdit: lead.thumbnail || '0',
-      notes: lead.serviceNotes || lead.servicePitched,
+      serviceNotes: SERVICE_NOTE_OPTIONS.includes(
+        lead.serviceNotes as (typeof SERVICE_NOTE_OPTIONS)[number]
+      )
+        ? lead.serviceNotes
+        : '',
+      salesNotes: lead.salesNotes || '',
       camera: shoot?.camera || '',
       recordTime: shoot?.recordTime || '',
       studioTime: shoot?.studioTime || '',
@@ -673,7 +691,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
         normalizeQuantity(proposalForm[field.key]),
       ])
     );
-    const serviceNotes = proposalForm.notes.trim();
+    const serviceNotes = proposalForm.serviceNotes.trim();
+    const salesNotes = proposalForm.salesNotes.trim();
 
     setSubmittingProposal(true);
     try {
@@ -685,8 +704,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
           client_name: selected.name,
           client_email: proposalForm.clientEmail,
           client_phone: selected.phoneNumber,
-          service_pitched: serviceNotes,
+          service_pitched: selected.servicePitched,
           service_notes: serviceNotes,
+          sales_notes: salesNotes,
           ...deliverablesPayload,
           long_format_duration: proposalForm.longFormatDuration.trim(),
           short_format_duration: proposalForm.shortFormatDuration.trim(),
@@ -1535,13 +1555,34 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="service-notes">Service Notes</Label>
-                  <Input
-                    id="service-notes"
-                    value={proposalForm.notes}
-                    onChange={(e) =>
-                      setProposalForm((prev) => ({ ...prev, notes: e.target.value }))
+                  <Select
+                    value={proposalForm.serviceNotes}
+                    onValueChange={(value) =>
+                      setProposalForm((prev) => ({ ...prev, serviceNotes: value }))
                     }
-                    placeholder="e.g. Podcast for KKB, Reels for Instagram campaign..."
+                  >
+                    <SelectTrigger id="service-notes">
+                      <SelectValue placeholder="Select a service" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SERVICE_NOTE_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sales-notes">Sales Notes</Label>
+                  <Textarea
+                    id="sales-notes"
+                    value={proposalForm.salesNotes}
+                    onChange={(e) =>
+                      setProposalForm((prev) => ({ ...prev, salesNotes: e.target.value }))
+                    }
+                    placeholder="Add notes for the sales team..."
+                    className="min-h-10"
                   />
                 </div>
               </div>

@@ -40,6 +40,7 @@ export interface CreateLeadInput {
   longFormatDuration?: string;
   shortFormatDuration?: string;
   additionalNotes?: string;
+  salesNotes?: string;
 }
 
 export interface Lead {
@@ -78,6 +79,7 @@ export interface Lead {
   longFormatDuration: string;
   shortFormatDuration: string;
   additionalNotes: string;
+  salesNotes: string;
   serialNo: number;
   searchText: string;
   payment: Payment | null;

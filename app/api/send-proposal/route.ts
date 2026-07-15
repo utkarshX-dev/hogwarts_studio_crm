@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       client_phone: String(body.client_phone ?? '').trim(),
       service_pitched: String(body.service_pitched ?? '').trim(),
       service_notes: String(body.service_notes ?? body.service_pitched ?? '').trim(),
+      sales_notes: String(body.sales_notes ?? '').trim(),
       podcast_edit: String(body.podcast_edit ?? '0').trim(),
       reel_edit: String(body.reel_edit ?? '0').trim(),
       long_format_video: String(body.long_format_video ?? '0').trim(),
