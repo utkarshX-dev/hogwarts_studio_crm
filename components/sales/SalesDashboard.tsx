@@ -453,6 +453,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [paymentLead, setPaymentLead] = useState<Lead | null>(null);
   const [paymentOption, setPaymentOption] = useState<'50' | '100' | 'custom'>('50');
   const [customPercent, setCustomPercent] = useState(30);
+  const [additionalEmails, setAdditionalEmails] = useState('');
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
   const [verifyingLeadId, setVerifyingLeadId] = useState<string | null>(null);
   const [completingFinalPaymentId, setCompletingFinalPaymentId] = useState<string | null>(null);
@@ -810,22 +812,26 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
 
     setSendingPaymentLink(true);
     try {
+      const formData = new FormData();
+      formData.append('lead_id', paymentLead.leadId);
+      formData.append('client_name', paymentLead.name);
+      formData.append('client_email', paymentLead.clientEmail);
+      formData.append('cost', paymentLead.cost);
+      formData.append('total_cost', String(totalCost));
+      formData.append('amount_to_collect', String(amountToCollect));
+      formData.append('remaining_amount', String(remainingAmount));
+      formData.append('payment_percentage', String(percentage));
+      formData.append('payment_type', percentage === 100 ? 'Full Payment' : 'Advance Payment');
+      formData.append('salesperson_name', paymentLead.assignedTo);
+      formData.append('salesperson_email', user.email);
+      formData.append('additional_emails', additionalEmails);
+      if (invoiceFile) {
+        formData.append('invoice_file', invoiceFile);
+      }
+
       const response = await fetch('/api/send-payment-link', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lead_id: paymentLead.leadId,
-          client_name: paymentLead.name,
-          client_email: paymentLead.clientEmail,
-          cost: paymentLead.cost,
-          total_cost: totalCost,
-          amount_to_collect: amountToCollect,
-          remaining_amount: remainingAmount,
-          payment_percentage: percentage,
-          payment_type: percentage === 100 ? 'Full Payment' : 'Advance Payment',
-          salesperson_name: paymentLead.assignedTo,
-          salesperson_email: user.email,
-        }),
+        body: formData,
       });
 
       const data = await response.json();
@@ -835,6 +841,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
 
       setPaymentLinkOpen(false);
       setPaymentLead(null);
+      setAdditionalEmails('');
+      setInvoiceFile(null);
       toast.success('Payment link sent!');
       await refreshLeads(true);
     } catch (error) {
@@ -990,6 +998,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             setPaymentLead(lead);
             setPaymentOption('50');
             setCustomPercent(30);
+            setAdditionalEmails('');
+            setInvoiceFile(null);
             setPaymentLinkOpen(true);
           }}
         >
@@ -1738,6 +1748,25 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                 Amount: {paymentLead.cost ? formatINR(parseCost(paymentLead.cost)) : '—'}
               </p>
             </div>
+              <div className="space-y-2">
+                <Label htmlFor="additional-emails">Additional Emails (Comma separated)</Label>
+                <Input
+                  id="additional-emails"
+                  type="text"
+                  value={additionalEmails}
+                  onChange={(e) => setAdditionalEmails(e.target.value)}
+                  placeholder="person@example.com, finance@example.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="invoice-file">Attach Invoice/Document (Optional)</Label>
+                <Input
+                  id="invoice-file"
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg"
+                  onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
+                />
+              </div>
               <fieldset className="space-y-3">
                 <legend className="text-sm font-medium">Advance Payment Type</legend>
                 <div className="flex flex-wrap gap-x-4 gap-y-2">
@@ -1791,6 +1820,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
               onClick={() => {
                 setPaymentLinkOpen(false);
                 setPaymentLead(null);
+                setAdditionalEmails('');
+                setInvoiceFile(null);
               }}
             >
               Cancel

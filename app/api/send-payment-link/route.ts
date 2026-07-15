@@ -8,10 +8,10 @@ const PAYMENT_LINK_WEBHOOK_URL =
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const formData = await request.formData();
 
-    const lead_id = String(body.lead_id ?? '').trim();
-    const client_email = String(body.client_email ?? '').trim();
+    const lead_id = String(formData.get('lead_id') ?? '').trim();
+    const client_email = String(formData.get('client_email') ?? '').trim();
 
     if (!lead_id) {
       return NextResponse.json({ error: 'Lead ID is required' }, { status: 400 });
@@ -21,24 +21,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Client email is required' }, { status: 400 });
     }
 
-    const payload = {
-      lead_id,
-      client_name: String(body.client_name ?? '').trim(),
-      client_email,
-      cost: String(body.cost ?? '').trim(),
-      total_cost: Number(body.total_cost ?? 0),
-      amount_to_collect: Number(body.amount_to_collect ?? 0),
-      remaining_amount: Number(body.remaining_amount ?? 0),
-      payment_percentage: Number(body.payment_percentage ?? 0),
-      payment_type: String(body.payment_type ?? '').trim(),
-      salesperson_name: String(body.salesperson_name ?? '').trim(),
-      salesperson_email: String(body.salesperson_email ?? '').trim(),
-    };
+    const payload = new FormData();
+    const fields = [
+      'client_name',
+      'cost',
+      'total_cost',
+      'amount_to_collect',
+      'remaining_amount',
+      'payment_percentage',
+      'payment_type',
+      'salesperson_name',
+      'salesperson_email',
+      'additional_emails',
+    ];
+
+    payload.append('lead_id', lead_id);
+    payload.append('client_email', client_email);
+    for (const field of fields) {
+      payload.append(field, String(formData.get(field) ?? '').trim());
+    }
+
+    const invoiceFile = formData.get('invoice_file');
+    if (invoiceFile instanceof File && invoiceFile.size > 0) {
+      payload.append('invoice_file', invoiceFile);
+    }
 
     const response = await fetch(PAYMENT_LINK_WEBHOOK_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: payload,
     });
 
     if (!response.ok) {
