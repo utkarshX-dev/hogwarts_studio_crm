@@ -28,8 +28,18 @@ export interface CreateLeadInput {
   longFormatVideo?: string;
   teaserDemo?: string;
   teaser?: string;
+  teaserEdit?: string;
   thumbnail?: string;
+  thumbnailEdit?: string;
   serviceNotes?: string;
+  camera?: string;
+  recordTime?: string;
+  studioTime?: string;
+  remainingAmount?: string;
+  shortFormatVideo?: string;
+  longFormatDuration?: string;
+  shortFormatDuration?: string;
+  additionalNotes?: string;
 }
 
 export interface Lead {
@@ -56,8 +66,18 @@ export interface Lead {
   longFormatVideo: string;
   teaserDemo: string;
   teaser: string;
+  teaserEdit: string;
   thumbnail: string;
+  thumbnailEdit: string;
   serviceNotes: string;
+  camera: string;
+  recordTime: string;
+  studioTime: string;
+  remainingAmount: string;
+  shortFormatVideo: string;
+  longFormatDuration: string;
+  shortFormatDuration: string;
+  additionalNotes: string;
   serialNo: number;
   searchText: string;
   payment: Payment | null;

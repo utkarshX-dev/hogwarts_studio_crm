@@ -10,8 +10,11 @@ const PAYMENTS_SHEET = 'Payments';
 const SHOOT_SHEET = 'Shoot';
 const EDITING_SHEET = 'Editing';
 const REVISIONS_SHEET = 'Revisions';
-const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:X`;
-const CLIENTS_APPEND_RANGE = `${CLIENTS_SHEET}!A:X`;
+// Clients has 31 columns (A:AE). Keeping both ranges aligned with the whole
+// table is essential: Google Sheets uses the supplied range to find the table
+// it appends to. A shorter range caused new rows to be appended from column V
+// (`teaser_edit`) rather than from column A (`lead_id`).
+const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A2:AE`;
 const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
 const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
 const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AH`;
@@ -59,10 +62,23 @@ function rowToLead(row: string[], index: number): Lead | null {
     reelDraft: row[17]?.trim() ?? '',
     reelEdit: row[18]?.trim() ?? '',
     longFormatVideo: row[19]?.trim() ?? '',
+    // The Clients sheet has `teaser_edit` and `thumbnail_edit`, not separate
+    // teaser-demo/final-teaser columns. Keep the legacy aliases populated for
+    // existing dashboards while exposing the actual sheet fields as well.
+    teaserEdit: row[20]?.trim() ?? '',
     teaserDemo: row[20]?.trim() ?? '',
-    teaser: row[21]?.trim() ?? '',
-    thumbnail: row[22]?.trim() ?? '',
-    serviceNotes: row[23]?.trim() ?? '',
+    teaser: row[20]?.trim() ?? '',
+    thumbnailEdit: row[21]?.trim() ?? '',
+    thumbnail: row[21]?.trim() ?? '',
+    serviceNotes: row[22]?.trim() ?? '',
+    camera: row[23]?.trim() ?? '',
+    recordTime: row[24]?.trim() ?? '',
+    studioTime: row[25]?.trim() ?? '',
+    remainingAmount: row[26]?.trim() ?? '',
+    shortFormatVideo: row[27]?.trim() ?? '',
+    longFormatDuration: row[28]?.trim() ?? '',
+    shortFormatDuration: row[29]?.trim() ?? '',
+    additionalNotes: row[30]?.trim() ?? '',
     serialNo: index + 1,
     searchText: `${name} ${phoneNumber}`.toLowerCase(),
     payment: null,
@@ -287,10 +303,17 @@ function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
     input.reelDraft?.trim() ?? '',
     input.reelEdit?.trim() ?? '',
     input.longFormatVideo?.trim() ?? '',
-    input.teaserDemo?.trim() ?? '',
-    input.teaser?.trim() ?? '',
-    input.thumbnail?.trim() ?? '',
+    input.teaserEdit?.trim() ?? input.teaser?.trim() ?? input.teaserDemo?.trim() ?? '',
+    input.thumbnailEdit?.trim() ?? input.thumbnail?.trim() ?? '',
     input.serviceNotes?.trim() ?? '',
+    input.camera?.trim() ?? '',
+    input.recordTime?.trim() ?? '',
+    input.studioTime?.trim() ?? '',
+    input.remainingAmount?.trim() ?? '',
+    input.shortFormatVideo?.trim() ?? '',
+    input.longFormatDuration?.trim() ?? '',
+    input.shortFormatDuration?.trim() ?? '',
+    input.additionalNotes?.trim() ?? '',
   ];
 }
 
@@ -383,16 +406,32 @@ export async function fetchClientsFromSheet(): Promise<Lead[]> {
     .filter((lead): lead is Lead => lead !== null);
 }
 
+async function getNextClientRow(sheets: ReturnType<typeof getSheetsClient>): Promise<number> {
+  // Do not use values.append here. Google Sheets infers a "table" from the
+  // contiguous filled cells, and the old malformed rows start at column V.
+  // Reading the complete grid gives us the real last occupied row instead.
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${CLIENTS_SHEET}!A:AE`,
+  });
+
+  // Row 1 is the header. `values` retains rows up to the last row that has a
+  // value anywhere in A:AE, including rows whose first populated cell is V.
+  return Math.max((response.data.values ?? []).length + 1, 2);
+}
+
 export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead> {
   const sheets = getSheetsClient();
   const leadId = generateLeadId();
   const row = buildLeadRow(input, leadId);
+  const nextRow = await getNextClientRow(sheets);
 
-  await sheets.spreadsheets.values.append({
+  // Write to a fully-qualified row, starting at A. This deliberately bypasses
+  // the append endpoint's table-detection behaviour.
+  await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: CLIENTS_APPEND_RANGE,
+    range: `${CLIENTS_SHEET}!A${nextRow}:AE${nextRow}`,
     valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
     requestBody: {
       values: [row],
     },
@@ -427,10 +466,20 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
     reelDraft: input.reelDraft?.trim() ?? '',
     reelEdit: input.reelEdit?.trim() ?? '',
     longFormatVideo: input.longFormatVideo?.trim() ?? '',
-    teaserDemo: input.teaserDemo?.trim() ?? '',
-    teaser: input.teaser?.trim() ?? '',
-    thumbnail: input.thumbnail?.trim() ?? '',
+    teaserEdit: input.teaserEdit?.trim() ?? input.teaser?.trim() ?? input.teaserDemo?.trim() ?? '',
+    teaserDemo: input.teaserEdit?.trim() ?? input.teaser?.trim() ?? input.teaserDemo?.trim() ?? '',
+    teaser: input.teaserEdit?.trim() ?? input.teaser?.trim() ?? input.teaserDemo?.trim() ?? '',
+    thumbnailEdit: input.thumbnailEdit?.trim() ?? input.thumbnail?.trim() ?? '',
+    thumbnail: input.thumbnailEdit?.trim() ?? input.thumbnail?.trim() ?? '',
     serviceNotes: input.serviceNotes?.trim() ?? '',
+    camera: input.camera?.trim() ?? '',
+    recordTime: input.recordTime?.trim() ?? '',
+    studioTime: input.studioTime?.trim() ?? '',
+    remainingAmount: input.remainingAmount?.trim() ?? '',
+    shortFormatVideo: input.shortFormatVideo?.trim() ?? '',
+    longFormatDuration: input.longFormatDuration?.trim() ?? '',
+    shortFormatDuration: input.shortFormatDuration?.trim() ?? '',
+    additionalNotes: input.additionalNotes?.trim() ?? '',
     serialNo: existingLeads.length + 1,
     searchText: `${input.name.trim()} ${input.phoneNumber.trim()}`.toLowerCase(),
     payment: null,
