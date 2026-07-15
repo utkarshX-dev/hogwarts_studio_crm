@@ -80,14 +80,12 @@ const SHOOT_MEMBERS = [
 ];
 
 const DELIVERABLE_FIELDS = [
-  { key: 'podcastDraft', payloadKey: 'podcast_draft', label: 'Podcast Draft' },
   { key: 'podcastEdit', payloadKey: 'podcast_edit', label: 'Podcast Edit' },
-  { key: 'reelDraft', payloadKey: 'reel_draft', label: 'Reel Draft' },
   { key: 'reelEdit', payloadKey: 'reel_edit', label: 'Reel Edit' },
-  { key: 'longFormatVideo', payloadKey: 'long_format_video', label: 'Long Format Video' },
-  { key: 'teaserDemo', payloadKey: 'teaser_demo', label: 'Teaser Demo' },
-  { key: 'teaser', payloadKey: 'teaser', label: 'Teaser' },
-  { key: 'thumbnail', payloadKey: 'thumbnail', label: 'Thumbnail' },
+  { key: 'longFormatVideo', payloadKey: 'long_format_video', label: 'Long Format Video', durationKey: 'longFormatDuration' },
+  { key: 'shortFormatVideo', payloadKey: 'short_format_video', label: 'Short Format Video', durationKey: 'shortFormatDuration' },
+  { key: 'teaserEdit', payloadKey: 'teaser_edit', label: 'Teaser Edit' },
+  { key: 'thumbnailEdit', payloadKey: 'thumbnail_edit', label: 'Thumbnail Edit' },
 ] as const;
 
 const TIME_HOURS = Array.from({ length: 12 }, (_, index) => String(index + 1));
@@ -104,17 +102,17 @@ type ProposalForm = {
   camera: string;
   recordTime: string;
   studioTime: string;
+  longFormatDuration: string;
+  shortFormatDuration: string;
 } & Record<DeliverableKey, string>;
 
 const DEFAULT_DELIVERABLES: Record<DeliverableKey, string> = {
-  podcastDraft: '0',
   podcastEdit: '0',
-  reelDraft: '0',
   reelEdit: '0',
   longFormatVideo: '0',
-  teaserDemo: '0',
-  teaser: '0',
-  thumbnail: '0',
+  shortFormatVideo: '0',
+  teaserEdit: '0',
+  thumbnailEdit: '0',
 };
 
 function normalizeQuantity(value: string) {
@@ -433,6 +431,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     camera: '',
     recordTime: '',
     studioTime: '',
+    longFormatDuration: '',
+    shortFormatDuration: '',
     ...DEFAULT_DELIVERABLES,
   });
   const [paymentLinkOpen, setPaymentLinkOpen] = useState(false);
@@ -577,18 +577,18 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     setProposalForm({
       clientEmail: lead.clientEmail,
       cost: lead.cost,
-      podcastDraft: lead.podcastDraft || '0',
       podcastEdit: lead.podcastEdit || '0',
-      reelDraft: lead.reelDraft || '0',
       reelEdit: lead.reelEdit || '0',
       longFormatVideo: lead.longFormatVideo || '0',
-      teaserDemo: lead.teaserDemo || '0',
-      teaser: lead.teaser || '0',
-      thumbnail: lead.thumbnail || '0',
+      shortFormatVideo: '0',
+      teaserEdit: lead.teaserDemo || '0',
+      thumbnailEdit: lead.thumbnail || '0',
       notes: lead.serviceNotes || lead.servicePitched,
       camera: shoot?.camera || '',
       recordTime: shoot?.recordTime || '',
       studioTime: shoot?.studioTime || '',
+      longFormatDuration: '',
+      shortFormatDuration: '',
     });
     setProposalOpen(true);
   };
@@ -677,19 +677,19 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
 
     setSubmittingProposal(true);
     try {
-      const shoot = shootsByLeadId.get(selected.leadId);
       const response = await fetch('/api/send-proposal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           lead_id: selected.leadId,
-          shoot_id: shoot?.shootId ?? '',
           client_name: selected.name,
           client_email: proposalForm.clientEmail,
           client_phone: selected.phoneNumber,
           service_pitched: serviceNotes,
           service_notes: serviceNotes,
           ...deliverablesPayload,
+          long_format_duration: proposalForm.longFormatDuration.trim(),
+          short_format_duration: proposalForm.shortFormatDuration.trim(),
           cost: proposalForm.cost,
           camera: proposalForm.camera,
           record_time: proposalForm.recordTime,
@@ -1581,24 +1581,65 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {DELIVERABLE_FIELDS.map((field) => (
-                  <div className="space-y-2" key={field.key}>
-                    <Label htmlFor={field.key}>{field.label}</Label>
-                    <Input
-                      id={field.key}
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={proposalForm[field.key]}
-                      onChange={(e) =>
-                        setProposalForm((prev) => ({
-                          ...prev,
-                          [field.key]: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                ))}
+                {DELIVERABLE_FIELDS.map((field) => {
+                  const durationKey = 'durationKey' in field ? field.durationKey : null;
+
+                  if (durationKey) {
+                    return (
+                      <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2" key={field.key}>
+                        <div className="space-y-2">
+                          <Label htmlFor={field.key}>{field.label}</Label>
+                          <Input
+                            id={field.key}
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={proposalForm[field.key]}
+                            onChange={(e) =>
+                              setProposalForm((prev) => ({
+                                ...prev,
+                                [field.key]: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={durationKey}>Duration</Label>
+                          <Input
+                            id={durationKey}
+                            value={proposalForm[durationKey]}
+                            onChange={(e) =>
+                              setProposalForm((prev) => ({
+                                ...prev,
+                                [durationKey]: e.target.value,
+                              }))
+                            }
+                            placeholder="e.g. 60 min"
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-2" key={field.key}>
+                      <Label htmlFor={field.key}>{field.label}</Label>
+                      <Input
+                        id={field.key}
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={proposalForm[field.key]}
+                        onChange={(e) =>
+                          setProposalForm((prev) => ({
+                            ...prev,
+                            [field.key]: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  );
+                })}
               </div>
               <p className="text-sm font-medium">
                 Total deliverables: {totalDeliverables(proposalForm)}
