@@ -452,7 +452,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [paymentLinkOpen, setPaymentLinkOpen] = useState(false);
   const [paymentLead, setPaymentLead] = useState<Lead | null>(null);
   const [paymentOption, setPaymentOption] = useState<'50' | '100' | 'custom'>('50');
-  const [customPercent, setCustomPercent] = useState(30);
+  const [customAmount, setCustomAmount] = useState('');
   const [additionalEmails, setAdditionalEmails] = useState('');
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
@@ -795,20 +795,22 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     if (!paymentLead || !user) return;
 
     const totalCost = parseCost(paymentLead.cost);
-    const percentage = paymentOption === 'custom' ? customPercent : Number(paymentOption);
+    const amountToCollect = paymentOption === 'custom' ? Number(customAmount) : (totalCost * Number(paymentOption)) / 100;
+    const percentage = (amountToCollect / totalCost) * 100;
 
     if (!Number.isFinite(totalCost) || totalCost <= 0) {
       toast.error('A valid project cost is required before sending a payment link');
       return;
     }
 
-    if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) {
-      toast.error('Custom advance percentage must be between 1 and 100');
+    if (!Number.isFinite(amountToCollect) || amountToCollect <= 0 || amountToCollect > totalCost) {
+      toast.error('Custom payment amount must be greater than zero and cannot exceed the project cost');
       return;
     }
 
-    const amountToCollect = Number(((totalCost * percentage) / 100).toFixed(2));
-    const remainingAmount = Number((totalCost - amountToCollect).toFixed(2));
+    const roundedAmountToCollect = Number(amountToCollect.toFixed(2));
+    const roundedPercentage = Number(percentage.toFixed(2));
+    const remainingAmount = Number((totalCost - roundedAmountToCollect).toFixed(2));
 
     setSendingPaymentLink(true);
     try {
@@ -818,10 +820,10 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       formData.append('client_email', paymentLead.clientEmail);
       formData.append('cost', paymentLead.cost);
       formData.append('total_cost', String(totalCost));
-      formData.append('amount_to_collect', String(amountToCollect));
+      formData.append('amount_to_collect', String(roundedAmountToCollect));
       formData.append('remaining_amount', String(remainingAmount));
-      formData.append('payment_percentage', String(percentage));
-      formData.append('payment_type', percentage === 100 ? 'Full Payment' : 'Advance Payment');
+      formData.append('payment_percentage', String(roundedPercentage));
+      formData.append('payment_type', roundedPercentage === 100 ? 'Full Payment' : 'Advance Payment');
       formData.append('salesperson_name', paymentLead.assignedTo);
       formData.append('salesperson_email', user.email);
       formData.append('additional_emails', additionalEmails);
@@ -997,7 +999,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             e.stopPropagation();
             setPaymentLead(lead);
             setPaymentOption('50');
-            setCustomPercent(30);
+            setCustomAmount('');
             setAdditionalEmails('');
             setInvoiceFile(null);
             setPaymentLinkOpen(true);
@@ -1773,7 +1775,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   {[
                     { value: '50', label: '50% Advance' },
                     { value: '100', label: '100% Full Payment' },
-                    { value: 'custom', label: 'Custom %' },
+                    { value: 'custom', label: 'Custom amount' },
                   ].map((option) => (
                     <Label key={option.value} className="flex cursor-pointer items-center gap-2 font-normal">
                       <input
@@ -1788,27 +1790,32 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   ))}
                 </div>
                 {paymentOption === 'custom' && (
-                  <div className="max-w-40 space-y-2">
-                    <Label htmlFor="custom-payment-percent">Custom percentage</Label>
+                  <div className="max-w-56 space-y-2">
+                    <Label htmlFor="custom-payment-amount">Custom amount (₹)</Label>
                     <Input
-                      id="custom-payment-percent"
+                      id="custom-payment-amount"
                       type="number"
-                      min="1"
-                      max="100"
-                      step="1"
-                      value={customPercent}
-                      onChange={(e) => setCustomPercent(Number(e.target.value))}
-                      placeholder="e.g. 40"
+                      min="0.01"
+                      max={parseCost(paymentLead.cost)}
+                      step="0.01"
+                      value={customAmount}
+                      onChange={(e) => setCustomAmount(e.target.value)}
+                      placeholder="e.g. 25000"
                     />
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {Number(customAmount) > 0 && parseCost(paymentLead.cost) > 0
+                        ? `This is ${((Number(customAmount) / parseCost(paymentLead.cost)) * 100).toFixed(2)}% of the total amount.`
+                        : 'Enter an amount to see its percentage of the total.'}
+                    </p>
                   </div>
                 )}
               </fieldset>
               <div className="rounded-md bg-muted p-3 text-sm space-y-1 tabular-nums">
                 <p>
-                  Amount to collect: {formatINR((parseCost(paymentLead.cost) * (paymentOption === 'custom' ? customPercent : Number(paymentOption))) / 100)}
+                  Amount to collect: {formatINR(paymentOption === 'custom' ? Number(customAmount) || 0 : (parseCost(paymentLead.cost) * Number(paymentOption)) / 100)}
                 </p>
                 <p className="text-muted-foreground">
-                  Remaining balance: {formatINR(parseCost(paymentLead.cost) - (parseCost(paymentLead.cost) * (paymentOption === 'custom' ? customPercent : Number(paymentOption))) / 100)}
+                  Remaining balance: {formatINR(parseCost(paymentLead.cost) - (paymentOption === 'custom' ? Number(customAmount) || 0 : (parseCost(paymentLead.cost) * Number(paymentOption)) / 100))}
                 </p>
               </div>
             </>
