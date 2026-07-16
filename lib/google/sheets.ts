@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import type { CreateLeadInput, EditingProject, Lead, Payment, Shoot } from '@/lib/sheets/types';
+import type { InstallmentLabel, PaymentInstallment, PaymentMode } from '@/lib/types';
 
 const SPREADSHEET_ID =
   process.env.GOOGLE_SHEETS_SPREADSHEET_ID ??
@@ -15,7 +16,8 @@ const REVISIONS_SHEET = 'Revisions';
 // it appends to. A shorter range caused new rows to be appended from column V
 // (`teaser_edit`) rather than from column A (`lead_id`).
 const CLIENTS_READ_RANGE = `${CLIENTS_SHEET}!A1:AZ`;
-const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:K`;
+const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:Q`;
+const PAYMENTS_WITH_HEADERS_READ_RANGE = `${PAYMENTS_SHEET}!A1:Q`;
 const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
 const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AH`;
 const REVISIONS_READ_RANGE = `${REVISIONS_SHEET}!A2:J`;
@@ -325,6 +327,56 @@ function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
   ];
 }
 
+function normalizeHeader(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function paymentColumn(headers: string[], names: string[], fallback: number): number {
+  const normalizedHeaders = headers.map(normalizeHeader);
+  const index = names.map(normalizeHeader).map((name) => normalizedHeaders.indexOf(name)).find((value) => value >= 0);
+  return index ?? fallback;
+}
+
+function paymentValue(row: string[], index: number): string {
+  return row[index]?.trim() ?? '';
+}
+
+function toPaymentMode(value: string): PaymentMode {
+  return value.trim().toLowerCase() === 'cash' ? 'Cash' : 'Online';
+}
+
+function toInstallmentLabel(value: string): InstallmentLabel {
+  const labels: InstallmentLabel[] = ['Advance', 'Day Before Shoot', 'Post Shoot', 'Custom'];
+  return labels.find((label) => label.toLowerCase() === value.trim().toLowerCase()) ?? 'Advance';
+}
+
+function rowToPaymentInstallment(row: string[], headers: string[]): PaymentInstallment | null {
+  const leadId = paymentValue(row, paymentColumn(headers, ['lead_id', 'lead id'], 1));
+  if (!leadId) return null;
+
+  const amount = parseNumber(paymentValue(row, paymentColumn(headers, ['amount', 'amount_to_collect'], 3)));
+  const status = paymentValue(row, paymentColumn(headers, ['payment_status', 'status'], 8));
+  const verifiedAt = paymentValue(row, paymentColumn(headers, ['verified_at'], 10));
+
+  return {
+    payment_id: paymentValue(row, paymentColumn(headers, ['payment_id', 'payment id'], 0)),
+    lead_id: leadId,
+    client_name: paymentValue(row, paymentColumn(headers, ['client_name', 'client name'], 2)),
+    installment_label: toInstallmentLabel(paymentValue(row, paymentColumn(headers, ['installment_label', 'installment label'], 13))),
+    amount,
+    payment_mode: toPaymentMode(paymentValue(row, paymentColumn(headers, ['payment_mode', 'payment mode'], 11))),
+    cash_collected_by: paymentValue(row, paymentColumn(headers, ['cash_collected_by', 'cash collected by'], 12)) || undefined,
+    payment_status: status,
+    payment_link_sent_at: paymentValue(row, paymentColumn(headers, ['payment_link_sent_at', 'payment link sent at'], 5)) || undefined,
+    verified_at: verifiedAt || undefined,
+    total_cost: parseNumber(paymentValue(row, paymentColumn(headers, ['total_cost', 'total cost'], 14))),
+    remaining_amount: parseNumber(paymentValue(row, paymentColumn(headers, ['remaining_amount', 'remaining amount'], 15))),
+    payment_completed:
+      parseBoolean(paymentValue(row, paymentColumn(headers, ['payment_completed', 'payment completed'], 16))) ||
+      ['payment verified', 'payment confirmed', 'confirmed'].includes(status.toLowerCase()),
+  };
+}
+
 export async function fetchPaymentsFromSheet(): Promise<Payment[]> {
   try {
     const sheets = getSheetsClient();
@@ -420,6 +472,25 @@ export async function fetchClientsFromSheet(): Promise<Lead[]> {
       rowToLead(row as string[], index, salesNotesColumn, proposalRevokeReasonColumn)
     )
     .filter((lead): lead is Lead => lead !== null);
+}
+
+export async function fetchPaymentInstallmentsFromSheet(leadId?: string): Promise<PaymentInstallment[]> {
+  try {
+    const sheets = getSheetsClient();
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: PAYMENTS_WITH_HEADERS_READ_RANGE,
+    });
+    const [headers = [], ...rows] = response.data.values ?? [];
+    const installments = rows
+      .map((row) => rowToPaymentInstallment(row as string[], headers as string[]))
+      .filter((payment): payment is PaymentInstallment => payment !== null);
+
+    return leadId ? installments.filter((payment) => payment.lead_id === leadId) : installments;
+  } catch (error) {
+    console.error('Failed to fetch payment installments from Google Sheets:', error);
+    return [];
+  }
 }
 
 async function getNextClientRow(sheets: ReturnType<typeof getSheetsClient>): Promise<number> {

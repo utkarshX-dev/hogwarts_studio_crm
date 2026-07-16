@@ -33,6 +33,9 @@ export async function POST(request: Request) {
       'salesperson_name',
       'salesperson_email',
       'additional_emails',
+      'payment_mode',
+      'cash_collected_by',
+      'installment_label',
     ];
 
     payload.append('lead_id', lead_id);

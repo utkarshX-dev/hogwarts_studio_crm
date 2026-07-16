@@ -11,10 +11,15 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const lead_id = String(body.lead_id ?? '').trim();
+    const payment_id = String(body.payment_id ?? '').trim();
     const verified_by = String(body.verified_by ?? '').trim();
 
     if (!lead_id) {
       return NextResponse.json({ error: 'Lead ID is required' }, { status: 400 });
+    }
+
+    if (!payment_id) {
+      return NextResponse.json({ error: 'Payment ID is required' }, { status: 400 });
     }
 
     if (!verified_by) {
@@ -23,6 +28,7 @@ export async function POST(request: Request) {
 
     const url = new URL(CONFIRM_PAYMENT_WEBHOOK_URL);
     url.searchParams.set('lead_id', lead_id);
+    url.searchParams.set('payment_id', payment_id);
     url.searchParams.set('verified_by', verified_by);
 
     const response = await fetch(url.toString(), {

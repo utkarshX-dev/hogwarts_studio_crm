@@ -33,6 +33,7 @@ import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2, Ca
 import { formatINR } from '@/lib/formatter';
 import { useAuth } from '@/lib/auth-context';
 import type { EditingProject, Lead, LeadFilterTab, Shoot } from '@/lib/sheets/types';
+import type { InstallmentLabel, PaymentInstallment, PaymentMode } from '@/lib/types';
 import {
   canSendPaymentLink,
   filterSalesLeads,
@@ -103,9 +104,14 @@ const DELIVERABLE_FIELDS = [
 const TIME_HOURS = Array.from({ length: 12 }, (_, index) => String(index + 1));
 const TIME_MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
 const TIME_PERIODS = ['AM', 'PM'] as const;
+const INSTALLMENT_LABELS: InstallmentLabel[] = ['Advance', 'Day Before Shoot', 'Post Shoot', 'Custom'];
 
 type TimePeriod = (typeof TIME_PERIODS)[number];
 type DeliverableKey = (typeof DELIVERABLE_FIELDS)[number]['key'];
+
+function isVerifiedInstallment(payment: PaymentInstallment): boolean {
+  return payment.payment_completed || ['payment verified', 'payment confirmed', 'confirmed'].includes(payment.payment_status.trim().toLowerCase());
+}
 
 type ProposalForm = {
   clientEmail: string;
@@ -453,6 +459,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [paymentLead, setPaymentLead] = useState<Lead | null>(null);
   const [paymentOption, setPaymentOption] = useState<'50' | '100' | 'custom'>('50');
   const [customAmount, setCustomAmount] = useState('');
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('Online');
+  const [installmentLabel, setInstallmentLabel] = useState<InstallmentLabel>('Advance');
+  const [cashCollectedBy, setCashCollectedBy] = useState('');
   const [additionalEmails, setAdditionalEmails] = useState('');
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [sendingPaymentLink, setSendingPaymentLink] = useState(false);
@@ -467,6 +476,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [extraCosts, setExtraCosts] = useState<Record<string, string>>({});
   const [extraFeedback, setExtraFeedback] = useState<Record<string, string>>({});
   const [handoverNotes, setHandoverNotes] = useState<Record<string, string>>({});
+  const [paymentHistoryLead, setPaymentHistoryLead] = useState<Lead | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<Record<string, PaymentInstallment[]>>({});
+  const [loadingPaymentHistory, setLoadingPaymentHistory] = useState(false);
   const [scheduleForm, setScheduleForm] = useState({
     shootDate: '',
     shootStartTime: '',
@@ -544,6 +556,28 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     return () => clearInterval(interval);
   }, [refreshEditing, refreshLeads, refreshShoots]);
 
+  useEffect(() => {
+    if (!paymentHistoryLead) return;
+
+    const loadPayments = async () => {
+      setLoadingPaymentHistory(true);
+      try {
+        const response = await fetch(`/api/payments?lead_id=${encodeURIComponent(paymentHistoryLead.leadId)}`, { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? 'Failed to fetch payment history');
+        setPaymentHistory((current) => ({ ...current, [paymentHistoryLead.leadId]: data.payments ?? [] }));
+      } catch (error) {
+        toast.error('Failed to load payment history', {
+          description: error instanceof Error ? error.message : 'Unknown error',
+        });
+      } finally {
+        setLoadingPaymentHistory(false);
+      }
+    };
+
+    void loadPayments();
+  }, [paymentHistoryLead]);
+
   const shootsByLeadId = useMemo(() => {
     const map = new Map<string, Shoot>();
     shoots.forEach((shoot) => {
@@ -588,6 +622,19 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
         return salesLeads;
     }
   }, [salesLeads, filterTab]);
+
+  const paymentSummary = (lead: Lead) => {
+    const payments = paymentHistory[lead.leadId] ?? [];
+    const totalCost = parseCost(lead.cost);
+    const totalCollected = payments
+      .filter(isVerifiedInstallment)
+      .reduce((sum, payment) => sum + payment.amount, 0);
+    const remaining = payments.length > 0
+      ? Math.max(0, totalCost - totalCollected)
+      : parseCost(lead.remainingAmount);
+
+    return { payments, totalCollected, remaining };
+  };
 
   const openProposalModal = (lead: Lead) => {
     const shoot = shootsByLeadId.get(lead.leadId);
@@ -808,6 +855,11 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       return;
     }
 
+    if (paymentMode === 'Cash' && !cashCollectedBy.trim()) {
+      toast.error('Cash collector name is required');
+      return;
+    }
+
     const roundedAmountToCollect = Number(amountToCollect.toFixed(2));
     const roundedPercentage = Number(percentage.toFixed(2));
     const remainingAmount = Number((totalCost - roundedAmountToCollect).toFixed(2));
@@ -824,6 +876,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       formData.append('remaining_amount', String(remainingAmount));
       formData.append('payment_percentage', String(roundedPercentage));
       formData.append('payment_type', roundedPercentage === 100 ? 'Full Payment' : 'Advance Payment');
+      formData.append('payment_mode', paymentMode);
+      formData.append('cash_collected_by', paymentMode === 'Cash' ? cashCollectedBy.trim() : '');
+      formData.append('installment_label', installmentLabel);
       formData.append('salesperson_name', paymentLead.assignedTo);
       formData.append('salesperson_email', user.email);
       formData.append('additional_emails', additionalEmails);
@@ -845,7 +900,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       setPaymentLead(null);
       setAdditionalEmails('');
       setInvoiceFile(null);
-      toast.success('Payment link sent!');
+      toast.success(paymentMode === 'Cash' ? 'Cash payment recorded!' : 'Payment link sent!');
       await refreshLeads(true);
     } catch (error) {
       toast.error('Failed to send payment link', {
@@ -859,6 +914,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const handleVerifyPayment = async (lead: Lead) => {
     if (!user) return;
 
+    const paymentId = lead.payment?.paymentId?.trim();
+    if (!paymentId) {
+      toast.error('Payment ID is missing for this pending payment');
+      return;
+    }
+
     setVerifyingLeadId(lead.leadId);
     try {
       const response = await fetch('/api/confirm-payment', {
@@ -866,6 +927,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           lead_id: lead.leadId,
+          payment_id: paymentId,
           verified_by: user.name,
         }),
       });
@@ -1000,6 +1062,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             setPaymentLead(lead);
             setPaymentOption('50');
             setCustomAmount('');
+            setPaymentMode('Online');
+            setInstallmentLabel('Advance');
+            setCashCollectedBy(user?.name ?? '');
             setAdditionalEmails('');
             setInvoiceFile(null);
             setPaymentLinkOpen(true);
@@ -1249,6 +1314,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       cell: (lead) => renderStatusCell(lead),
     },
     {
+      key: 'remaining',
+      header: 'Remaining',
+      cell: (lead) => <span className="tabular-nums">{formatINR(paymentSummary(lead).remaining)}</span>,
+      hideOnMobile: true,
+    },
+    {
       key: 'action',
       header: 'Actions',
       cell: (lead) => renderActions(lead),
@@ -1340,6 +1411,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             columns={columns}
             searchKeys={['searchText']}
             searchPlaceholder="Search by client name or phone..."
+            onRowClick={setPaymentHistoryLead}
           />
         </TabsContent>
 
@@ -1377,6 +1449,9 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                             </span>
                             <LeadStatusBadge status={lead.status} />
                           </div>
+                          <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                            Remaining: {formatINR(paymentSummary(lead).remaining)}
+                          </p>
                         </div>
                       ))
                     )}
@@ -1750,6 +1825,44 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                 Amount: {paymentLead.cost ? formatINR(parseCost(paymentLead.cost)) : '—'}
               </p>
             </div>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium">Payment Mode</legend>
+                <div className="grid grid-cols-2 rounded-md border border-border p-1">
+                  {(['Online', 'Cash'] as PaymentMode[]).map((mode) => (
+                    <Button
+                      key={mode}
+                      type="button"
+                      variant={paymentMode === mode ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setPaymentMode(mode)}
+                    >
+                      {mode}
+                    </Button>
+                  ))}
+                </div>
+              </fieldset>
+              <div className="space-y-2">
+                <Label htmlFor="installment-label">Installment Label</Label>
+                <Select value={installmentLabel} onValueChange={(value) => setInstallmentLabel(value as InstallmentLabel)}>
+                  <SelectTrigger id="installment-label"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {INSTALLMENT_LABELS.map((label) => <SelectItem key={label} value={label}>{label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {paymentMode === 'Cash' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="cash-collected-by">Cash collected by</Label>
+                  <Input
+                    id="cash-collected-by"
+                    required
+                    value={cashCollectedBy}
+                    onChange={(e) => setCashCollectedBy(e.target.value)}
+                    placeholder="Collector's name"
+                  />
+                </div>
+              ) : (
+                <>
               <div className="space-y-2">
                 <Label htmlFor="additional-emails">Additional Emails (Comma separated)</Label>
                 <Input
@@ -1769,6 +1882,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
                 />
               </div>
+                </>
+              )}
               <fieldset className="space-y-3">
                 <legend className="text-sm font-medium">Advance Payment Type</legend>
                 <div className="flex flex-wrap gap-x-4 gap-y-2">
@@ -1835,9 +1950,61 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             </Button>
             <Button onClick={handleSendPaymentLink} disabled={sendingPaymentLink}>
               <Wallet className="mr-1.5 h-4 w-4" />
-              Send Payment Link
+              {paymentMode === 'Cash' ? 'Record Cash Payment' : 'Send Payment Link'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(paymentHistoryLead)} onOpenChange={(open) => !open && setPaymentHistoryLead(null)}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Payment History</DialogTitle>
+            <DialogDescription>
+              {paymentHistoryLead ? `${paymentHistoryLead.name} • ${formatINR(parseCost(paymentHistoryLead.cost))}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {paymentHistoryLead && (() => {
+            const { payments, totalCollected, remaining } = paymentSummary(paymentHistoryLead);
+            return (
+              <div className="space-y-4">
+                {loadingPaymentHistory ? (
+                  <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+                ) : payments.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">No payment installments recorded yet.</p>
+                ) : (
+                  <div className="space-y-4 border-l-2 border-border ml-2 pl-5">
+                    {payments.map((payment, index) => {
+                      const date = payment.verified_at || payment.payment_link_sent_at;
+                      return (
+                        <div key={payment.payment_id || `${payment.lead_id}-${index}`} className="relative rounded-md border border-border p-3">
+                          <span className="absolute -left-[1.85rem] top-4 h-3 w-3 rounded-full border-2 border-background bg-primary" />
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium">{payment.installment_label}</p>
+                              <p className="text-xs text-muted-foreground">{date ? new Date(date).toLocaleDateString('en-IN') : 'Date unavailable'}</p>
+                            </div>
+                            <p className="font-medium tabular-nums">{formatINR(payment.amount)}</p>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Badge variant={payment.payment_mode === 'Cash' ? 'secondary' : 'outline'}>{payment.payment_mode}</Badge>
+                            <Badge variant="outline">{payment.payment_status || 'Pending'}</Badge>
+                          </div>
+                          {payment.cash_collected_by && (
+                            <p className="mt-2 text-xs text-muted-foreground">Collected by: {payment.cash_collected_by}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3 rounded-md bg-muted p-3 text-sm tabular-nums">
+                  <div><p className="text-muted-foreground">Total collected</p><p className="font-medium">{formatINR(totalCollected)}</p></div>
+                  <div><p className="text-muted-foreground">Remaining</p><p className="font-medium">{formatINR(remaining)}</p></div>
+                </div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

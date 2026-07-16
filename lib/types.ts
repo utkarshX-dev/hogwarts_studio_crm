@@ -17,6 +17,24 @@ export type ProjectStatus =
   | 'closed';
 
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid' | 'overdue';
+export type PaymentMode = 'Online' | 'Cash';
+export type InstallmentLabel = 'Advance' | 'Day Before Shoot' | 'Post Shoot' | 'Custom';
+
+export interface PaymentInstallment {
+  payment_id: string;
+  lead_id: string;
+  client_name: string;
+  installment_label: InstallmentLabel;
+  amount: number;
+  payment_mode: PaymentMode;
+  cash_collected_by?: string;
+  payment_status: string;
+  payment_link_sent_at?: string;
+  verified_at?: string;
+  total_cost: number;
+  remaining_amount: number;
+  payment_completed: boolean;
+}
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
 export type ServiceType =
   | 'podcast'
