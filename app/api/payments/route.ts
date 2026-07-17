@@ -6,10 +6,6 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   const leadId = new URL(request.url).searchParams.get('lead_id')?.trim();
 
-  if (!leadId) {
-    return NextResponse.json({ error: 'Lead ID is required', payments: [] }, { status: 400 });
-  }
-
   try {
     const payments = await fetchPaymentInstallmentsFromSheet(leadId);
     return NextResponse.json({ payments });

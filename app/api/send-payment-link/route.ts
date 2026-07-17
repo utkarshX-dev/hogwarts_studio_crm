@@ -28,6 +28,7 @@ export async function POST(request: Request) {
       'total_cost',
       'amount_to_collect',
       'remaining_amount',
+      'amount_paid_so_far',
       'payment_percentage',
       'payment_type',
       'salesperson_name',
