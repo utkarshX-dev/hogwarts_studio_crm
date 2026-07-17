@@ -58,8 +58,8 @@ const SCHEDULE_SHOOT_WEBHOOK_URL =
 const FINAL_PAYMENT_COMPLETED_WEBHOOK_URL =
   'https://n8n.hogwartsstudios.com/webhook/final-payment-completed';
 
-const SALES_MEMBERS = ['Isha', 'Deepak', 'Krishan'] as const;
-const DEFAULT_ASSIGNED_TO = SALES_MEMBERS[0];
+const FALLBACK_SALES_MEMBERS = ['Isha Malhotra', 'Krishna Tiwari', 'Krishan Kunal Bagoria'];
+const DEFAULT_ASSIGNED_TO = FALLBACK_SALES_MEMBERS[0];
 const SERVICE_NOTE_OPTIONS = [
   'Podcast',
   'Solo content shoot',
@@ -86,10 +86,8 @@ interface SalesDashboardProps {
   initialEditing: EditingProject[];
 }
 
-const SHOOT_MEMBERS = [
-  { name: 'Mayank', email: 'mayank@hogwartsmedia.com' },
-  { name: 'Rahul', email: 'rahul@hogwartsmedia.com' },
-  { name: 'Priya', email: 'priya@hogwartsmedia.com' },
+const FALLBACK_SHOOT_MEMBERS = [
+  { name: 'Mayank Saxena', email: 'mayank@hogwartsstudios.com' },
 ];
 
 const DELIVERABLE_FIELDS = [
@@ -429,7 +427,18 @@ function SalesCalendar({ shoots }: { shoots: Shoot[] }) {
 }
 
 export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: SalesDashboardProps) {
-  const { user } = useAuth();
+  const { user, users } = useAuth();
+
+  const salesMembers = useMemo(() => {
+    const list = users.filter((u) => u.role === 'sales' || u.role === 'manager');
+    return list.length > 0 ? list.map(u => u.name) : FALLBACK_SALES_MEMBERS;
+  }, [users]);
+
+  const shootMembers = useMemo(() => {
+    const list = users.filter((u) => u.role === 'shoot');
+    return list.length > 0 ? list.map(u => ({ name: u.name, email: u.email })) : FALLBACK_SHOOT_MEMBERS;
+  }, [users]);
+
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [shoots, setShoots] = useState<Shoot[]>(initialShoots);
   const [editing, setEditing] = useState<EditingProject[]>(initialEditing);
@@ -438,6 +447,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [newLeadService, setNewLeadService] = useState('podcast');
   const [reachoutDone, setReachoutDone] = useState<'yes' | 'no'>('no');
   const [assignedTo, setAssignedTo] = useState<string>(DEFAULT_ASSIGNED_TO);
+
+  useEffect(() => {
+    if (salesMembers.length > 0 && assignedTo === FALLBACK_SALES_MEMBERS[0]) {
+      setAssignedTo(salesMembers[0]);
+    }
+  }, [salesMembers, assignedTo]);
   const [proposalOpen, setProposalOpen] = useState(false);
   const [leadOpen, setLeadOpen] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
@@ -488,9 +503,19 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     bts: 'No',
     recordTime: '',
     studioTime: '',
-    shootMemberName: SHOOT_MEMBERS[0].name,
-    shootMemberEmail: SHOOT_MEMBERS[0].email,
+    shootMemberName: FALLBACK_SHOOT_MEMBERS[0].name,
+    shootMemberEmail: FALLBACK_SHOOT_MEMBERS[0].email,
   });
+
+  useEffect(() => {
+    if (shootMembers.length > 0 && scheduleForm.shootMemberName === FALLBACK_SHOOT_MEMBERS[0].name) {
+      setScheduleForm((prev) => ({
+        ...prev,
+        shootMemberName: shootMembers[0].name,
+        shootMemberEmail: shootMembers[0].email,
+      }));
+    }
+  }, [shootMembers, scheduleForm.shootMemberName]);
 
   const refreshLeads = useCallback(async (silent = false) => {
     if (!silent) setRefreshing(true);
@@ -674,14 +699,14 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       bts: 'No',
       recordTime: '',
       studioTime: '',
-      shootMemberName: SHOOT_MEMBERS[0].name,
-      shootMemberEmail: SHOOT_MEMBERS[0].email,
+      shootMemberName: shootMembers[0]?.name || FALLBACK_SHOOT_MEMBERS[0].name,
+      shootMemberEmail: shootMembers[0]?.email || FALLBACK_SHOOT_MEMBERS[0].email,
     });
     setScheduleOpen(true);
   };
 
   const handleScheduleMemberChange = (name: string) => {
-    const member = SHOOT_MEMBERS.find((item) => item.name === name) ?? SHOOT_MEMBERS[0];
+    const member = shootMembers.find((item) => item.name === name) ?? shootMembers[0] ?? FALLBACK_SHOOT_MEMBERS[0];
     setScheduleForm((prev) => ({
       ...prev,
       shootMemberName: member.name,
@@ -2142,7 +2167,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   >
                     <SelectTrigger id="shootMember"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {SHOOT_MEMBERS.map((member) => (
+                      {shootMembers.map((member) => (
                         <SelectItem key={member.name} value={member.name}>
                           {member.name}
                         </SelectItem>
@@ -2228,7 +2253,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   <SelectValue placeholder="Select sales member" />
                 </SelectTrigger>
                 <SelectContent>
-                  {SALES_MEMBERS.map((member) => (
+                  {salesMembers.map((member) => (
                     <SelectItem key={member} value={member}>
                       {member}
                     </SelectItem>

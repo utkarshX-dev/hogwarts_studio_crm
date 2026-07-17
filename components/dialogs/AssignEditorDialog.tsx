@@ -9,8 +9,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useWorkflow } from '@/hooks/use-workflow';
 import { useAuth } from '@/lib/auth-context';
-import { EDITORS } from '@/lib/mock-data';
-import type { Project, Editor } from '@/lib/types';
+import type { Project } from '@/lib/types';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -22,11 +21,11 @@ interface AssignEditorDialogProps {
 
 export function AssignEditorDialog({ project, open, onOpenChange }: AssignEditorDialogProps) {
   const { triggerWorkflow, triggering } = useWorkflow();
-  const { user } = useAuth();
+  const { user, users } = useAuth();
   const [editorId, setEditorId] = useState<string>('');
 
-  const available = EDITORS.filter((e) => e.status !== 'offline');
-  const selectedEditor = EDITORS.find((e) => e.id === editorId);
+  const available = users.filter((e) => e.role === 'editor');
+  const selectedEditor = available.find((e) => e.id === editorId);
 
   const handleAssign = async () => {
     if (!project || !editorId) return;
@@ -56,12 +55,12 @@ export function AssignEditorDialog({ project, open, onOpenChange }: AssignEditor
             <Select value={editorId} onValueChange={setEditorId}>
               <SelectTrigger><SelectValue placeholder="Choose an available editor" /></SelectTrigger>
               <SelectContent>
-                {available.map((e: Editor) => (
-                  <SelectItem key={e.id} value={e.id} disabled={e.status === 'busy'}>
+                {available.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
                     <div className="flex items-center gap-2">
                       <span>{e.name}</span>
                       <span className="text-xs text-muted-foreground">
-                        {e.status === 'busy' ? `(busy · ${e.activeProjects} active)` : 'available'}
+                        ({e.designation || 'Editor'})
                       </span>
                     </div>
                   </SelectItem>
@@ -77,7 +76,7 @@ export function AssignEditorDialog({ project, open, onOpenChange }: AssignEditor
               <div>
                 <p className="text-sm font-medium">{selectedEditor.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {selectedEditor.completedProjects} completed · {selectedEditor.activeProjects} active
+                  {selectedEditor.designation || 'Editor'} · {selectedEditor.email}
                 </p>
               </div>
             </div>

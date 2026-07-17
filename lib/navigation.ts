@@ -30,5 +30,18 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 export function getNavForRole(role: UserRole): NavItem[] {
-  return NAV_ITEMS.filter((item) => item.roles.includes(role));
+  if (role === 'manager' || role === 'admin') {
+    return NAV_ITEMS;
+  }
+  // For other roles, they only get Settings + their own dashboard page:
+  // - if role === 'sales': /sales and /settings
+  // - if role === 'editor': /editor and /settings
+  // - if role === 'shoot': /shoot and /settings
+  return NAV_ITEMS.filter((item) => {
+    if (item.href === '/settings') return true;
+    if (role === 'sales' && item.href === '/sales') return true;
+    if (role === 'editor' && item.href === '/editor') return true;
+    if (role === 'shoot' && item.href === '/shoot') return true;
+    return false;
+  });
 }

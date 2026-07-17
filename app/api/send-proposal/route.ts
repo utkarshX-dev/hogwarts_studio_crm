@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { getAuthenticatedUser } from '@/lib/auth-server';
+import { fetchLeadsWithPayments } from '@/lib/google/sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,8 +10,12 @@ const PROPOSAL_WEBHOOK_URL =
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const user = getAuthenticatedUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
+    const body = await request.json();
     const lead_id = String(body.lead_id ?? '').trim();
     const client_email = String(body.client_email ?? '').trim();
 
@@ -19,6 +25,23 @@ export async function POST(request: Request) {
 
     if (!client_email) {
       return NextResponse.json({ error: 'Client email is required' }, { status: 400 });
+    }
+
+    // Enforce data isolation: check if user is allowed to access this lead
+    if (user.role === 'sales') {
+      const leads = await fetchLeadsWithPayments();
+      const isAssigned = leads.some(
+        (l) =>
+          l.leadId === lead_id &&
+          (l.assignedTo.trim().toLowerCase() === user.name.trim().toLowerCase() ||
+            l.assignedTo.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+            l.assignedTo.trim().toLowerCase() === user.username.trim().toLowerCase())
+      );
+      if (!isAssigned) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    } else if (user.role !== 'manager' && user.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const payload = {

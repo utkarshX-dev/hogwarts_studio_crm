@@ -2,14 +2,12 @@ import type { EditingProject, Lead } from '@/lib/sheets/types';
 
 export const N8N_WEBHOOK_BASE = 'https://n8n.hogwartsstudios.com/webhook';
 
-export const EDITORS = [
-  { name: 'Deepanshu', email: 'deepanshu@hogwartsmedia.com' },
-  { name: 'Shubham', email: 'shubham@hogwartsmedia.com' },
-  { name: 'Gulshan', email: 'gulshan@hogwartsmedia.com' },
-];
+export const EDITORS: { name: string; email: string }[] = [];
 
 const SALES_EMAILS_BY_NAME: Record<string, string> = {
-  shubham: 'shubham@hogwartsmedia.com',
+  krishna: 'krishna.tiwari@hogwartsstudios.com',
+  isha: 'isha@hogwartsstudios.com',
+  kkb: 'kkb@hogwartsstudios.com',
 };
 
 export function isExtraRevisionNeeded(edit: EditingProject) {

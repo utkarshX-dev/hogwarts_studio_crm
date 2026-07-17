@@ -1,282 +1,145 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
-import { SESSION_KEY, MOCK_USERS } from '@/lib/auth';
-import type { UserRole } from '@/lib/types';
-import { toast } from 'sonner';
-import { Eye, EyeOff } from 'lucide-react';
-
-const PROFILE_ROLES: { value: UserRole; label: string }[] = [
-  { value: 'manager', label: 'Manager (Albus Dumbledore)' },
-  { value: 'sales', label: 'Sales Rep (Shubham)' },
-  { value: 'editor', label: 'Editor' },
-  { value: 'shoot', label: 'Shoot Team' },
-  { value: 'admin', label: 'Admin User' },
-];
+import { Loader2 } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { user, initAuth } = useAuth();
-  const router = useRouter();
+  const { user, updateProfile } = useAuth();
+  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (user && user.role !== 'manager') {
-      router.replace(user.redirectTo || '/dashboard');
+    if (user) {
+      setEmail(user.email);
+      setUsername(user.username);
     }
-  }, [user, router]);
+  }, [user]);
 
-  const [selectedRole, setSelectedRole] = useState<UserRole>('manager');
-  const [editUsername, setEditUsername] = useState('');
-  const [editEmail, setEditEmail] = useState('');
-  const [editPassword, setEditPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  // Return null if not manager, to prevent flashing/rendering unauthorized content
-  if (!user || user.role !== 'manager') {
+  if (!user) {
     return null;
   }
 
-  // Load custom configurations on role switch
-  useEffect(() => {
-    let usersConfig = MOCK_USERS;
-    let passwordsConfig: Record<string, string> = {};
-
-    if (typeof window !== 'undefined') {
-      const savedConfig = window.localStorage.getItem('howgarts_users_config');
-      if (savedConfig) {
-        try {
-          usersConfig = JSON.parse(savedConfig);
-        } catch (e) {
-          console.error('Failed to parse config:', e);
-        }
-      }
-      const savedPasswords = window.localStorage.getItem('howgarts_users_passwords');
-      if (savedPasswords) {
-        try {
-          passwordsConfig = JSON.parse(savedPasswords);
-        } catch (e) {
-          console.error('Failed to parse passwords:', e);
-        }
-      }
-    }
-
-    const details = usersConfig[selectedRole];
-    if (details) {
-      setEditUsername(details.username);
-      setEditEmail(details.email);
-    }
-    setEditPassword(passwordsConfig[selectedRole] || 'password');
-  }, [selectedRole]);
-
-  const handleSaveChanges = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-
+    setSubmitting(true);
     try {
-      if (!editUsername) {
-        toast.error('Invalid Username', { description: 'Username cannot be empty.' });
-        setLoading(false);
-        return;
-      }
-      if (!editEmail || !editEmail.includes('@')) {
-        toast.error('Invalid Email', { description: 'Please enter a valid email address.' });
-        setLoading(false);
-        return;
-      }
-      if (!editPassword || editPassword.length < 4) {
-        toast.error('Weak Password', { description: 'Password must be at least 4 characters long.' });
-        setLoading(false);
-        return;
-      }
-
-      let usersConfig = { ...MOCK_USERS };
-      let passwordsConfig: Record<string, string> = {};
-
-      if (typeof window !== 'undefined') {
-        const savedConfig = window.localStorage.getItem('howgarts_users_config');
-        if (savedConfig) {
-          try {
-            usersConfig = JSON.parse(savedConfig);
-          } catch (e) {
-            console.error(e);
-          }
-        }
-        const savedPasswords = window.localStorage.getItem('howgarts_users_passwords');
-        if (savedPasswords) {
-          try {
-            passwordsConfig = JSON.parse(savedPasswords);
-          } catch (e) {
-            console.error(e);
-          }
-        }
-
-        // Update selected profile's credentials
-        usersConfig[selectedRole] = {
-          ...usersConfig[selectedRole],
-          username: editUsername,
-          email: editEmail,
-        };
-        passwordsConfig[selectedRole] = editPassword;
-
-        window.localStorage.setItem('howgarts_users_config', JSON.stringify(usersConfig));
-        window.localStorage.setItem('howgarts_users_passwords', JSON.stringify(passwordsConfig));
-
-        // If the selected profile matches the logged-in user, refresh their session
-        if (user && user.role === selectedRole) {
-          const updatedSession = {
-            ...user,
-            username: editUsername,
-            email: editEmail,
-          };
-          window.localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSession));
-          initAuth();
-        }
-      }
-
-      toast.success('Settings Saved', {
-        description: `Credentials for ${selectedRole.toUpperCase()} profile updated.`,
+      await updateProfile({
+        email,
+        username,
+        password: password || undefined,
       });
-    } catch (error) {
-      console.error('Failed to update credentials:', error);
-      toast.error('Error', { description: 'Failed to update settings.' });
+      setPassword('');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   return (
-    <div>
-      <PageHeader title="Settings" description="Account credentials and preferences" />
+    <div className="space-y-6">
+      <PageHeader title="Settings" description="Account details and profile information" />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Info Only Section */}
-        <Card className="md:col-span-1 h-fit">
-          <CardHeader>
-            <CardTitle className="text-base">Profile Information</CardTitle>
-            <CardDescription>Your general account details</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Avatar className="h-16 w-16">
-                <AvatarFallback className="bg-secondary border border-border text-lg font-medium">
-                  {user?.initials || 'U'}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-semibold text-base">{user?.name || 'User'}</p>
-                <p className="text-xs text-muted-foreground capitalize bg-secondary border border-border rounded-full px-2.5 py-0.5 w-fit mt-1">
-                  {user?.role || 'Guest'}
-                </p>
-              </div>
-            </div>
-            <Separator />
-            <div className="space-y-3.5 text-sm">
-              <div>
-                <span className="text-xs text-muted-foreground block">Full Name</span>
-                <span className="font-medium text-foreground">{user?.name || '—'}</span>
-              </div>
-              <div>
-                <span className="text-xs text-muted-foreground block">Username</span>
-                <span className="font-medium text-foreground">{user?.username || '—'}</span>
-              </div>
-              <div>
-                <span className="text-xs text-muted-foreground block">System Access Level</span>
-                <span className="font-medium text-foreground capitalize">{user?.role || '—'}</span>
-              </div>
-              <div>
-                <span className="text-xs text-muted-foreground block">Current Email Address</span>
-                <span className="font-medium text-foreground">{user?.email || '—'}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Change Credentials Form */}
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Security Settings</CardTitle>
-            <CardDescription>Select any profile to update its login credentials</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSaveChanges} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="profile-select">Select Profile to Edit</Label>
-                <Select value={selectedRole} onValueChange={(val: any) => setSelectedRole(val)}>
-                  <SelectTrigger id="profile-select"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {PROFILE_ROLES.map((role) => (
-                      <SelectItem key={role.value} value={role.value}>
-                        {role.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator className="my-2" />
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-username">Username</Label>
-                <Input
-                  id="edit-username"
-                  type="text"
-                  value={editUsername}
-                  onChange={(e) => setEditUsername(e.target.value)}
-                  placeholder="Username"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-email">Email Address</Label>
-                <Input
-                  id="edit-email"
-                  type="email"
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="edit-password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={editPassword}
-                    onChange={(e) => setEditPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="pr-10"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((prev) => !prev)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+      <div className="max-w-2xl">
+        <form onSubmit={handleSubmit}>
+          <Card className="border border-border/80 bg-card/40 backdrop-blur-md shadow-lg">
+            <CardHeader>
+              <CardTitle className="text-lg">Profile Information</CardTitle>
+              <CardDescription>Update your general account details and password.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-20 w-20 border-2 border-border shadow-sm">
+                  <AvatarFallback className="bg-secondary text-foreground text-2xl font-semibold">
+                    {user?.initials || 'U'}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="space-y-1">
+                  <p className="font-bold text-xl text-foreground">{user?.name || 'User'}</p>
+                  <p className="text-sm text-muted-foreground">{user?.designation || 'Hogwarts Staff'}</p>
+                  <div className="inline-block text-xs font-semibold uppercase tracking-wider bg-secondary border border-border text-foreground rounded-full px-3 py-1 mt-1 capitalize shadow-sm">
+                    {user?.role === 'manager' ? 'Master Access' : user?.role === 'shoot' ? 'Shoot Team' : user?.role}
+                  </div>
                 </div>
               </div>
 
-              <Button type="submit" size="sm" disabled={loading}>
-                {loading ? 'Saving...' : 'Save Changes'}
+              <Separator className="my-4" />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                <div className="space-y-1 bg-secondary/10 p-3 rounded-lg border border-border/40 md:col-span-2">
+                  <span className="text-xs text-muted-foreground block uppercase font-semibold tracking-wider">Full Name</span>
+                  <span className="font-semibold text-foreground text-base">{user?.name || '—'}</span>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="username" className="text-xs uppercase font-semibold tracking-wider text-muted-foreground">System Username</Label>
+                  <Input
+                    id="username"
+                    type="text"
+                    required
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="bg-background/50 border-border/80 focus:border-primary"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="text-xs uppercase font-semibold tracking-wider text-muted-foreground">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="bg-background/50 border-border/80 focus:border-primary"
+                  />
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="password" className="text-xs uppercase font-semibold tracking-wider text-muted-foreground">New Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Leave blank to keep current password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="bg-background/50 border-border/80 focus:border-primary"
+                  />
+                </div>
+
+                <div className="space-y-1 bg-secondary/10 p-3 rounded-lg border border-border/40">
+                  <span className="text-xs text-muted-foreground block uppercase font-semibold tracking-wider">Contact Number</span>
+                  <span className="font-semibold text-foreground text-base">{user?.phone || '—'}</span>
+                </div>
+
+                <div className="space-y-1 bg-secondary/10 p-3 rounded-lg border border-border/40">
+                  <span className="text-xs text-muted-foreground block uppercase font-semibold tracking-wider">Designation</span>
+                  <span className="font-semibold text-foreground text-base">{user?.designation || '—'}</span>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="border-t border-border/80 p-6 flex justify-end">
+              <Button type="submit" disabled={submitting} className="min-w-[120px]">
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
               </Button>
-            </form>
-          </CardContent>
-        </Card>
+            </CardFooter>
+          </Card>
+        </form>
       </div>
     </div>
   );

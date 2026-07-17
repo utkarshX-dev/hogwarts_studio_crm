@@ -23,7 +23,7 @@ import { useAuth } from '@/lib/auth-context';
 import type { EditingProject, Lead, Shoot } from '@/lib/sheets/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { EDITORS as EDITING_EDITORS, findAssignedSalespersonEmail, findClientEmail, isExtraRevisionNeeded, postWebhook } from '@/lib/editing';
+import { findAssignedSalespersonEmail, findClientEmail, isExtraRevisionNeeded, postWebhook } from '@/lib/editing';
 
 const EDITOR_WORKLOAD_URL = 'https://n8n.hogwartsstudios.com/webhook/editor-workload';
 
@@ -139,9 +139,9 @@ function editorDropdownLabel(workloads: EditorWorkload[], editorName: string) {
   return level === 'Free' ? `${editorName} (Free)` : `${editorName} (${level} - ${total})`;
 }
 
-function calculateWorkloadFromEditing(editingProjects: EditingProject[]): EditorWorkload[] {
+function calculateWorkloadFromEditing(editingProjects: EditingProject[], editorsList: { name: string; email: string }[]): EditorWorkload[] {
   const activeStatuses = ['Editing', 'Extra Revision Approved', 'Revision Requested', 'Draft Sent', 'Draft Ready'];
-  return EDITING_EDITORS.map((editor) => {
+  return editorsList.map((editor) => {
     const editorProjects = editingProjects.filter(
       (edit) =>
         edit.editorName.trim().toLowerCase() === editor.name.trim().toLowerCase() &&
@@ -212,7 +212,16 @@ function WorkloadBreakdown({ workload }: { workload: EditorWorkload }) {
 }
 
 export default function ManagerPage() {
-  const { user } = useAuth();
+  const { user, users } = useAuth();
+
+  const editors = useMemo(() => {
+    const list = users.filter((u) => u.role === 'editor');
+    return list.length > 0 ? list.map(u => ({ name: u.name, email: u.email })) : [
+      { name: 'Shubham Singh Rana', email: 'shubham@hogwartsstudios.com' },
+      { name: 'Deepak Sharma', email: 'deepak@hogwartsstudios.com' }
+    ];
+  }, [users]);
+
   const { triggerWorkflow, triggering } = useWorkflow();
   const [loading, setLoading] = useState(true);
   const [shoots, setShoots] = useState<Shoot[]>([]);
@@ -225,14 +234,25 @@ export default function ManagerPage() {
   const [approvingExtraId, setApprovingExtraId] = useState<string | null>(null);
   const [extraCosts, setExtraCosts] = useState<Record<string, string>>({});
   const [extraFeedback, setExtraFeedback] = useState<Record<string, string>>({});
+  
   const [assignForm, setAssignForm] = useState({
     serviceType: '',
-    editorName: EDITING_EDITORS[0].name,
-    editorEmail: EDITING_EDITORS[0].email,
+    editorName: 'Shubham Singh Rana',
+    editorEmail: 'shubham@hogwartsstudios.com',
     dataLink: '',
     totalService: '1',
     ...DEFAULT_DELIVERABLES,
   });
+
+  useEffect(() => {
+    if (editors.length > 0 && assignForm.editorName === 'Shubham Singh Rana') {
+      setAssignForm((prev) => ({
+        ...prev,
+        editorName: editors[0].name,
+        editorEmail: editors[0].email,
+      }));
+    }
+  }, [editors, assignForm.editorName]);
 
   useEffect(() => {
     let mounted = true;
@@ -285,12 +305,12 @@ export default function ManagerPage() {
         if (response.ok && apiWorkloads.length > 0) {
           setEditorWorkload(apiWorkloads);
         } else {
-          setEditorWorkload(calculateWorkloadFromEditing(editing));
+          setEditorWorkload(calculateWorkloadFromEditing(editing, editors));
         }
       } catch (error) {
         console.error('Failed to fetch editor workload, using local calculation:', error);
         if (mounted) {
-          setEditorWorkload(calculateWorkloadFromEditing(editing));
+          setEditorWorkload(calculateWorkloadFromEditing(editing, editors));
         }
       }
     }
@@ -314,8 +334,8 @@ export default function ManagerPage() {
     setAssignShoot(shoot);
     setAssignForm({
       serviceType: '',
-      editorName: EDITING_EDITORS[0].name,
-      editorEmail: EDITING_EDITORS[0].email,
+      editorName: editors[0]?.name || 'Shubham Singh Rana',
+      editorEmail: editors[0]?.email || 'shubham@hogwartsstudios.com',
       dataLink: shoot.dataLink,
       totalService: '1',
       ...leadDeliverables(lead),
@@ -362,7 +382,7 @@ export default function ManagerPage() {
   };
 
   const handleEditorChange = (editorName: string) => {
-    const editor = EDITING_EDITORS.find((item) => item.name === editorName) ?? EDITING_EDITORS[0];
+    const editor = editors.find((item) => item.name === editorName) ?? editors[0];
     setAssignForm((prev) => ({
       ...prev,
       editorName: editor.name,
@@ -714,7 +734,7 @@ export default function ManagerPage() {
                   <Select value={assignForm.editorName} onValueChange={handleEditorChange}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {EDITING_EDITORS.map((editor) => (
+                      {editors.map((editor) => (
                         <SelectItem key={editor.name} value={editor.name}>
                           {editorDropdownLabel(editorWorkload, editor.name)}
                         </SelectItem>
@@ -725,7 +745,7 @@ export default function ManagerPage() {
                 <div className="space-y-2 sm:col-span-2 border border-border rounded-md p-3 bg-muted/30">
                   <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Editor Availability & Workload</Label>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1.5">
-                    {EDITING_EDITORS.map((editor) => {
+                    {editors.map((editor) => {
                       const workload = workloadForEditor(editorWorkload, editor.name);
                       const total = workload?.totalDeliverables ?? 0;
                       const level = workloadLevel(total);

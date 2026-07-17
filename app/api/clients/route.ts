@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { appendClientToSheet, fetchLeadsWithPayments } from '@/lib/google/sheets';
+import { appendClientToSheet, fetchLeadsWithPayments, fetchEditingFromSheet, fetchShootsFromSheet } from '@/lib/google/sheets';
 import type { CreateLeadInput } from '@/lib/sheets/types';
+import { getAuthenticatedUser } from '@/lib/auth-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,8 +16,42 @@ const SERVICE_LABELS: Record<string, string> = {
 
 export async function GET() {
   try {
+    const user = getAuthenticatedUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const leads = await fetchLeadsWithPayments();
-    return NextResponse.json({ leads });
+    let filteredLeads = leads;
+
+    if (user.role === 'sales') {
+      filteredLeads = leads.filter(
+        (lead) =>
+          lead.assignedTo.trim().toLowerCase() === user.name.trim().toLowerCase() ||
+          lead.assignedTo.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+          lead.assignedTo.trim().toLowerCase() === user.username.trim().toLowerCase()
+      );
+    } else if (user.role === 'editor') {
+      const editingProjects = await fetchEditingFromSheet();
+      const editorEdits = editingProjects.filter(
+        (e) =>
+          e.editorEmail.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+          e.editorName.trim().toLowerCase() === user.name.trim().toLowerCase()
+      );
+      const allowedLeadIds = new Set(editorEdits.map((e) => e.leadId));
+      filteredLeads = leads.filter((l) => l.leadId && allowedLeadIds.has(l.leadId));
+    } else if (user.role === 'shoot') {
+      const shoots = await fetchShootsFromSheet();
+      const shootCrew = shoots.filter(
+        (s) =>
+          s.shootMemberEmail.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+          s.shootMemberName.trim().toLowerCase() === user.name.trim().toLowerCase()
+      );
+      const allowedLeadIds = new Set(shootCrew.map((s) => s.leadId));
+      filteredLeads = leads.filter((l) => l.leadId && allowedLeadIds.has(l.leadId));
+    }
+
+    return NextResponse.json({ leads: filteredLeads });
   } catch (error) {
     console.error('Failed to fetch clients from Google Sheets:', error);
     const message =
@@ -27,6 +62,16 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const user = getAuthenticatedUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Only manager and sales roles can add new leads
+    if (!['manager', 'sales', 'admin'].includes(user.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const body = await request.json();
     const name = String(body.name ?? '').trim();
     const phoneNumber = String(body.phoneNumber ?? body.contact ?? '').trim();

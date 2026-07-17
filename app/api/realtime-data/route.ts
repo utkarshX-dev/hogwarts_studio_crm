@@ -34,13 +34,57 @@ function normalizeService(service: string | undefined): string {
   return 'Other';
 }
 
+import { getAuthenticatedUser } from '@/lib/auth-server';
+import { fetchShootsFromSheet } from '@/lib/google/sheets';
+
 export async function GET() {
   try {
-    const [leads, payments, editingProjects] = await Promise.all([
+    const user = getAuthenticatedUser();
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const [allLeads, allPayments, allEditing, allShoots] = await Promise.all([
       fetchClientsFromSheet(),
       fetchPaymentsFromSheet(),
       fetchEditingFromSheet(),
+      fetchShootsFromSheet(),
     ]);
+
+    let leads = allLeads;
+    let payments = allPayments;
+    let editingProjects = allEditing;
+
+    if (user.role === 'sales') {
+      leads = allLeads.filter(
+        (lead) =>
+          lead.assignedTo.trim().toLowerCase() === user.name.trim().toLowerCase() ||
+          lead.assignedTo.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+          lead.assignedTo.trim().toLowerCase() === user.username.trim().toLowerCase()
+      );
+      const allowedLeadIds = new Set(leads.map((l) => l.leadId));
+      payments = allPayments.filter((p) => p.leadId && allowedLeadIds.has(p.leadId));
+      editingProjects = allEditing.filter((e) => e.leadId && allowedLeadIds.has(e.leadId));
+    } else if (user.role === 'editor') {
+      editingProjects = allEditing.filter(
+        (edit) =>
+          edit.editorEmail.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+          edit.editorName.trim().toLowerCase() === user.name.trim().toLowerCase()
+      );
+      const allowedLeadIds = new Set(editingProjects.map((e) => e.leadId));
+      leads = allLeads.filter((l) => l.leadId && allowedLeadIds.has(l.leadId));
+      payments = allPayments.filter((p) => p.leadId && allowedLeadIds.has(p.leadId));
+    } else if (user.role === 'shoot') {
+      const userShoots = allShoots.filter(
+        (shoot) =>
+          shoot.shootMemberEmail.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+          shoot.shootMemberName.trim().toLowerCase() === user.name.trim().toLowerCase()
+      );
+      const allowedLeadIds = new Set(userShoots.map((s) => s.leadId));
+      leads = allLeads.filter((l) => l.leadId && allowedLeadIds.has(l.leadId));
+      payments = allPayments.filter((p) => p.leadId && allowedLeadIds.has(p.leadId));
+      editingProjects = allEditing.filter((e) => e.leadId && allowedLeadIds.has(e.leadId));
+    }
 
     const validPayments = payments.filter((p) => p.paymentId && p.paymentId.trim() !== '');
 
