@@ -35,9 +35,7 @@ import { useAuth } from '@/lib/auth-context';
 import type { EditingProject, Lead, LeadFilterTab, Shoot } from '@/lib/sheets/types';
 import type { InstallmentLabel, PaymentInstallment, PaymentMode } from '@/lib/types';
 import {
-  canSendPaymentLink,
   filterSalesLeads,
-  isPaymentLinkSent,
   isPendingPaymentVerification,
   isPaymentVerified,
   PAYMENT_STATUS,
@@ -108,7 +106,7 @@ type TimePeriod = (typeof TIME_PERIODS)[number];
 type DeliverableKey = (typeof DELIVERABLE_FIELDS)[number]['key'];
 
 function isVerifiedInstallment(payment: PaymentInstallment): boolean {
-  return payment.payment_completed || ['payment verified', 'payment confirmed', 'confirmed'].includes(payment.payment_status.trim().toLowerCase());
+  return payment.payment_mode === 'Cash' || ['payment verified', 'payment confirmed', 'confirmed', 'cash received'].includes(payment.payment_status.trim().toLowerCase());
 }
 
 type ProposalForm = {
@@ -572,36 +570,40 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     }
   }, []);
 
+  const refreshPaymentHistory = useCallback(async (silent = false) => {
+    try {
+      const response = await fetch('/api/payments', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? 'Failed to refresh payment history');
+
+      const grouped = (data.payments ?? []).reduce((history: Record<string, PaymentInstallment[]>, payment: PaymentInstallment) => {
+        (history[payment.lead_id] ??= []).push(payment);
+        return history;
+      }, {});
+      setPaymentHistory(grouped);
+    } catch (error) {
+      if (!silent) {
+        toast.error('Failed to load payment history', {
+          description: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(() => {
       refreshLeads(true);
       refreshShoots(true);
       refreshEditing(true);
+      refreshPaymentHistory(true);
     }, 30000);
     return () => clearInterval(interval);
-  }, [refreshEditing, refreshLeads, refreshShoots]);
+  }, [refreshEditing, refreshLeads, refreshPaymentHistory, refreshShoots]);
 
   useEffect(() => {
-    if (!paymentHistoryLead) return;
-
-    const loadPayments = async () => {
-      setLoadingPaymentHistory(true);
-      try {
-        const response = await fetch(`/api/payments?lead_id=${encodeURIComponent(paymentHistoryLead.leadId)}`, { cache: 'no-store' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? 'Failed to fetch payment history');
-        setPaymentHistory((current) => ({ ...current, [paymentHistoryLead.leadId]: data.payments ?? [] }));
-      } catch (error) {
-        toast.error('Failed to load payment history', {
-          description: error instanceof Error ? error.message : 'Unknown error',
-        });
-      } finally {
-        setLoadingPaymentHistory(false);
-      }
-    };
-
-    void loadPayments();
-  }, [paymentHistoryLead]);
+    setLoadingPaymentHistory(Boolean(paymentHistoryLead));
+    void refreshPaymentHistory().finally(() => setLoadingPaymentHistory(false));
+  }, [paymentHistoryLead, refreshPaymentHistory]);
 
   const shootsByLeadId = useMemo(() => {
     const map = new Map<string, Shoot>();
@@ -656,7 +658,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       .reduce((sum, payment) => sum + payment.amount, 0);
     const remaining = payments.length > 0
       ? Math.max(0, totalCost - totalCollected)
-      : parseCost(lead.remainingAmount);
+      : parseCost(lead.remainingAmount) || totalCost;
 
     return { payments, totalCollected, remaining };
   };
@@ -867,7 +869,10 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     if (!paymentLead || !user) return;
 
     const totalCost = parseCost(paymentLead.cost);
-    const amountToCollect = paymentOption === 'custom' ? Number(customAmount) : (totalCost * Number(paymentOption)) / 100;
+    const { remaining: remainingBeforePayment, totalCollected } = paymentSummary(paymentLead);
+    const amountToCollect = paymentOption === 'custom'
+      ? Number(customAmount)
+      : (remainingBeforePayment * Number(paymentOption)) / 100;
     const percentage = (amountToCollect / totalCost) * 100;
 
     if (!Number.isFinite(totalCost) || totalCost <= 0) {
@@ -875,8 +880,8 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       return;
     }
 
-    if (!Number.isFinite(amountToCollect) || amountToCollect <= 0 || amountToCollect > totalCost) {
-      toast.error('Custom payment amount must be greater than zero and cannot exceed the project cost');
+    if (!Number.isFinite(amountToCollect) || amountToCollect <= 0 || amountToCollect > remainingBeforePayment) {
+      toast.error('Payment amount must be greater than zero and cannot exceed the remaining balance');
       return;
     }
 
@@ -887,7 +892,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
 
     const roundedAmountToCollect = Number(amountToCollect.toFixed(2));
     const roundedPercentage = Number(percentage.toFixed(2));
-    const remainingAmount = Number((totalCost - roundedAmountToCollect).toFixed(2));
+    const remainingAmount = Number((remainingBeforePayment - roundedAmountToCollect).toFixed(2));
 
     setSendingPaymentLink(true);
     try {
@@ -899,6 +904,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       formData.append('total_cost', String(totalCost));
       formData.append('amount_to_collect', String(roundedAmountToCollect));
       formData.append('remaining_amount', String(remainingAmount));
+      formData.append('amount_paid_so_far', String(totalCollected));
       formData.append('payment_percentage', String(roundedPercentage));
       formData.append('payment_type', roundedPercentage === 100 ? 'Full Payment' : 'Advance Payment');
       formData.append('payment_mode', paymentMode);
@@ -927,6 +933,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       setInvoiceFile(null);
       toast.success(paymentMode === 'Cash' ? 'Cash payment recorded!' : 'Payment link sent!');
       await refreshLeads(true);
+      await refreshPaymentHistory(true);
     } catch (error) {
       toast.error('Failed to send payment link', {
         description: error instanceof Error ? error.message : 'Unknown error',
@@ -1069,15 +1076,28 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   };
 
   const renderPaymentAction = (lead: Lead) => {
-    if (isPaymentLinkSent(lead)) {
+    const { payments, remaining } = paymentSummary(lead);
+    const hasPaymentAwaitingVerification = payments.some((payment) =>
+      ['link sent', 'payment link sent', 'pending verification', 'screenshot uploaded - pending verification'].includes(payment.payment_status.trim().toLowerCase())
+    );
+
+    if (lead.proposalAccepted && remaining <= 0) {
       return (
         <Button variant="outline" size="sm" disabled className="text-muted-foreground">
-          Payment Link Sent ✓
+          Payment Completed ✓
         </Button>
       );
     }
 
-    if (canSendPaymentLink(lead)) {
+    if (lead.proposalAccepted && hasPaymentAwaitingVerification) {
+      return (
+        <Button variant="outline" size="sm" disabled className="text-muted-foreground">
+          Awaiting Verification
+        </Button>
+      );
+    }
+
+    if (lead.proposalAccepted && remaining > 0) {
       return (
         <Button
           variant="outline"
@@ -1876,6 +1896,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                 </Select>
               </div>
               {paymentMode === 'Cash' ? (
+                <>
                 <div className="space-y-2">
                   <Label htmlFor="cash-collected-by">Cash collected by</Label>
                   <Input
@@ -1886,6 +1907,16 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                     placeholder="Collector's name"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cash-invoice-file">Attach Invoice/Document (Optional)</Label>
+                  <Input
+                    id="cash-invoice-file"
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
+                  />
+                </div>
+                </>
               ) : (
                 <>
               <div className="space-y-2">
@@ -1936,7 +1967,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                       id="custom-payment-amount"
                       type="number"
                       min="0.01"
-                      max={parseCost(paymentLead.cost)}
+                      max={paymentSummary(paymentLead).remaining}
                       step="0.01"
                       value={customAmount}
                       onChange={(e) => setCustomAmount(e.target.value)}
@@ -1952,10 +1983,10 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
               </fieldset>
               <div className="rounded-md bg-muted p-3 text-sm space-y-1 tabular-nums">
                 <p>
-                  Amount to collect: {formatINR(paymentOption === 'custom' ? Number(customAmount) || 0 : (parseCost(paymentLead.cost) * Number(paymentOption)) / 100)}
+                  Amount to collect: {formatINR(paymentOption === 'custom' ? Number(customAmount) || 0 : (paymentSummary(paymentLead).remaining * Number(paymentOption)) / 100)}
                 </p>
                 <p className="text-muted-foreground">
-                  Remaining balance: {formatINR(parseCost(paymentLead.cost) - (paymentOption === 'custom' ? Number(customAmount) || 0 : (parseCost(paymentLead.cost) * Number(paymentOption)) / 100))}
+                  Remaining balance after this payment: {formatINR(paymentSummary(paymentLead).remaining - (paymentOption === 'custom' ? Number(customAmount) || 0 : (paymentSummary(paymentLead).remaining * Number(paymentOption)) / 100))}
                 </p>
               </div>
             </>

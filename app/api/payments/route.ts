@@ -12,6 +12,7 @@ export async function GET(request: Request) {
 
   const leadId = new URL(request.url).searchParams.get('lead_id')?.trim();
 
+<<<<<<< HEAD
   if (!leadId) {
     return NextResponse.json({ error: 'Lead ID is required', payments: [] }, { status: 400 });
   }
@@ -53,6 +54,8 @@ export async function GET(request: Request) {
     }
   }
 
+=======
+>>>>>>> f70b0f08efb0f296d4f732ca0c5f8b0da9a7e72c
   try {
     const payments = await fetchPaymentInstallmentsFromSheet(leadId);
     return NextResponse.json({ payments });
