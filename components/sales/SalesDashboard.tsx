@@ -911,6 +911,11 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       return;
     }
 
+    if (!invoiceFile) {
+      toast.error('An invoice or supporting document is required before sending a payment link');
+      return;
+    }
+
     const roundedAmountToCollect = Number(amountToCollect.toFixed(2));
     const roundedPercentage = Number(percentage.toFixed(2));
     const remainingAmount = Number((remainingBeforePayment - roundedAmountToCollect).toFixed(2));
@@ -1929,11 +1934,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="cash-invoice-file">Attach Invoice/Document (Optional)</Label>
+                  <Label htmlFor="cash-invoice-file">Attach Invoice/Document *</Label>
                   <Input
                     id="cash-invoice-file"
                     type="file"
                     accept=".pdf,.png,.jpg,.jpeg"
+                    required
                     onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
                   />
                 </div>
@@ -1951,11 +1957,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="invoice-file">Attach Invoice/Document (Optional)</Label>
+                <Label htmlFor="invoice-file">Attach Invoice/Document *</Label>
                 <Input
                   id="invoice-file"
                   type="file"
                   accept=".pdf,.png,.jpg,.jpeg"
+                  required
                   onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
                 />
               </div>
@@ -2025,7 +2032,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             >
               Cancel
             </Button>
-            <Button onClick={handleSendPaymentLink} disabled={sendingPaymentLink}>
+            <Button onClick={handleSendPaymentLink} disabled={sendingPaymentLink || !invoiceFile}>
               <Wallet className="mr-1.5 h-4 w-4" />
               {paymentMode === 'Cash' ? 'Record Cash Payment' : 'Send Payment Link'}
             </Button>

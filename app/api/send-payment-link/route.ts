@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const lead_id = String(formData.get('lead_id') ?? '').trim();
     const client_email = String(formData.get('client_email') ?? '').trim();
+    const invoiceFile = formData.get('invoice_file');
 
     if (!lead_id) {
       return NextResponse.json({ error: 'Lead ID is required' }, { status: 400 });
@@ -25,6 +26,10 @@ export async function POST(request: Request) {
 
     if (!client_email) {
       return NextResponse.json({ error: 'Client email is required' }, { status: 400 });
+    }
+
+    if (!(invoiceFile instanceof File) || invoiceFile.size === 0) {
+      return NextResponse.json({ error: 'An invoice or supporting document is required' }, { status: 400 });
     }
 
     // Enforce data isolation: check if user is allowed to access this lead
@@ -68,10 +73,7 @@ export async function POST(request: Request) {
       payload.append(field, String(formData.get(field) ?? '').trim());
     }
 
-    const invoiceFile = formData.get('invoice_file');
-    if (invoiceFile instanceof File && invoiceFile.size > 0) {
-      payload.append('invoice_file', invoiceFile);
-    }
+    payload.append('invoice_file', invoiceFile);
 
     const response = await fetch(PAYMENT_LINK_WEBHOOK_URL, {
       method: 'POST',
