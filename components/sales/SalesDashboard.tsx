@@ -658,9 +658,11 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     const totalCollected = payments
       .filter(isVerifiedInstallment)
       .reduce((sum, payment) => sum + payment.amount, 0);
-    const remaining = payments.length > 0
+    const remaining = isFinalPaymentCompleted(lead)
+      ? 0
+      : payments.length > 0
       ? Math.max(0, totalCost - totalCollected)
-      : parseCost(lead.remainingAmount) || totalCost;
+      : totalCost;
 
     return { payments, totalCollected, remaining };
   };
