@@ -81,6 +81,11 @@
 }
 
 @layer utilities {
+  .schedule-shoot-date-input::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    opacity: 1;
+  }
+
   .animate-fade-in {
     animation: fadeIn 150ms ease-out;
   }
