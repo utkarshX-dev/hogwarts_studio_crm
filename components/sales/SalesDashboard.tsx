@@ -483,6 +483,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleLead, setScheduleLead] = useState<Lead | null>(null);
   const [schedulingShoot, setSchedulingShoot] = useState(false);
+  const [conflictError, setConflictError] = useState('');
   const [sendingDraftId, setSendingDraftId] = useState<string | null>(null);
   const [approvingExtraId, setApprovingExtraId] = useState<string | null>(null);
   const [handoverId, setHandoverId] = useState<string | null>(null);
@@ -500,6 +501,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     teleprompter: 'No',
     bts: 'No',
     recordTime: '',
+    setName: '',
     studioTime: '',
     shootMemberName: FALLBACK_SHOOT_MEMBERS[0].name,
     shootMemberEmail: FALLBACK_SHOOT_MEMBERS[0].email,
@@ -700,10 +702,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       teleprompter: 'No',
       bts: 'No',
       recordTime: '',
+      setName: '',
       studioTime: '',
       shootMemberName: shootMembers[0]?.name || FALLBACK_SHOOT_MEMBERS[0].name,
       shootMemberEmail: shootMembers[0]?.email || FALLBACK_SHOOT_MEMBERS[0].email,
     });
+    setConflictError('');
     setScheduleOpen(true);
   };
 
@@ -720,30 +724,45 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     event.preventDefault();
     if (!scheduleLead) return;
 
+    if (!scheduleForm.setName) {
+      setConflictError('Please select a set / location before scheduling.');
+      return;
+    }
+
     setSchedulingShoot(true);
     try {
+      const payload = {
+        lead_id: scheduleLead.leadId,
+        client_name: scheduleLead.name,
+        contact_num: scheduleLead.phoneNumber,
+        email_id: scheduleLead.clientEmail,
+        shoot_date: scheduleForm.shootDate,
+        shoot_start_time: scheduleForm.shootStartTime,
+        shoot_end_time: scheduleForm.shootEndTime,
+        total_hours: totalHours,
+        camera: scheduleForm.camera,
+        teleprompter: scheduleForm.teleprompter,
+        bts: scheduleForm.bts,
+        record_time: scheduleForm.recordTime,
+        set_name: scheduleForm.setName,
+        studio_time: scheduleForm.studioTime,
+        assigned_to: scheduleLead.assignedTo,
+        shoot_member_name: scheduleForm.shootMemberName,
+        shoot_member_email: scheduleForm.shootMemberEmail,
+      };
       const response = await fetch(SCHEDULE_SHOOT_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lead_id: scheduleLead.leadId,
-          client_name: scheduleLead.name,
-          contact_num: scheduleLead.phoneNumber,
-          email_id: scheduleLead.clientEmail,
-          shoot_date: scheduleForm.shootDate,
-          shoot_start_time: scheduleForm.shootStartTime,
-          shoot_end_time: scheduleForm.shootEndTime,
-          total_hours: totalHours,
-          camera: scheduleForm.camera,
-          teleprompter: scheduleForm.teleprompter,
-          bts: scheduleForm.bts,
-          record_time: scheduleForm.recordTime,
-          studio_time: scheduleForm.studioTime,
-          assigned_to: scheduleLead.assignedTo,
-          shoot_member_name: scheduleForm.shootMemberName,
-          shoot_member_email: scheduleForm.shootMemberEmail,
-        }),
+        body: JSON.stringify(payload),
       });
+
+      if (response.status === 409) {
+        const conflict = await response.json();
+        setConflictError(
+          `"${payload.set_name}" is already booked for ${conflict.conflicting_client} from ${conflict.conflicting_start} to ${conflict.conflicting_end}. Please choose a different set or time.`
+        );
+        return;
+      }
 
       if (!response.ok) throw new Error('Failed to schedule shoot');
 
@@ -2121,9 +2140,10 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   <TimeOfDaySelect
                     id="shootStartTime"
                     value={scheduleForm.shootStartTime}
-                    onChange={(value) =>
-                      setScheduleForm((prev) => ({ ...prev, shootStartTime: value }))
-                    }
+                    onChange={(value) => {
+                      setScheduleForm((prev) => ({ ...prev, shootStartTime: value }));
+                      setConflictError('');
+                    }}
                   />
                 </div>
                 <div className="space-y-2">
@@ -2131,9 +2151,10 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   <TimeOfDaySelect
                     id="shootEndTime"
                     value={scheduleForm.shootEndTime}
-                    onChange={(value) =>
-                      setScheduleForm((prev) => ({ ...prev, shootEndTime: value }))
-                    }
+                    onChange={(value) => {
+                      setScheduleForm((prev) => ({ ...prev, shootEndTime: value }));
+                      setConflictError('');
+                    }}
                   />
                 </div>
                 <div className="space-y-2">
@@ -2181,6 +2202,29 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="setName">Set / Location</Label>
+                  <Select
+                    value={scheduleForm.setName}
+                    onValueChange={(value) => {
+                      setScheduleForm((prev) => ({ ...prev, setName: value }));
+                      setConflictError('');
+                    }}
+                  >
+                    <SelectTrigger id="setName"><SelectValue placeholder="Select a set / location" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Black Money">Black Money</SelectItem>
+                      <SelectItem value="Dark Realm">Dark Realm</SelectItem>
+                      <SelectItem value="Dark Multiverse">Dark Multiverse</SelectItem>
+                      <SelectItem value="Green Amazon">Green Amazon</SelectItem>
+                      <SelectItem value="Moroccan">Moroccan</SelectItem>
+                      <SelectItem value="Cyclorama Chroma Screen">Cyclorama Chroma Screen</SelectItem>
+                      <SelectItem value="Entire Studio">Entire Studio</SelectItem>
+                      <SelectItem value="Product Shoot">Product Shoot</SelectItem>
+                      <SelectItem value="Outdoor Shoot">Outdoor Shoot</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="studioTime">Studio Time</Label>
                   <Input
                     id="studioTime"
@@ -2219,6 +2263,12 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   />
                 </div>
               </div>
+
+              {conflictError && (
+                <div className="rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+                  {conflictError}
+                </div>
+              )}
 
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setScheduleOpen(false)}>
