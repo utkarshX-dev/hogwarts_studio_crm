@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth-server';
-import { fetchLeadsWithPayments } from '@/lib/google/sheets';
+import { fetchLeadsWithPayments, clearSheetsCache } from '@/lib/google/sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,6 +69,8 @@ export async function POST(request: Request) {
         { status: 502 }
       );
     }
+
+    clearSheetsCache();
 
     let data: unknown = {};
     if (text) {

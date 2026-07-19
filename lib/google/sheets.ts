@@ -1,6 +1,8 @@
 import { google } from 'googleapis';
 import type { CreateLeadInput, EditingProject, Lead, Payment, Shoot } from '@/lib/sheets/types';
 import type { InstallmentLabel, PaymentInstallment, PaymentMode } from '@/lib/types';
+import { BACKEND_USERS, type BackendUser } from '@/lib/backend-users';
+import type { UserRole } from '@/lib/auth';
 
 const SPREADSHEET_ID =
   process.env.GOOGLE_SHEETS_SPREADSHEET_ID ??
@@ -377,20 +379,77 @@ function rowToPaymentInstallment(row: string[], headers: string[]): PaymentInsta
   };
 }
 
+// --- CACHING & REQUEST COALESCING CONFIG ---
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+// In Next.js hot-reloads, global scope might be re-initialized.
+// Using globalThis ensures the cache persists across fast-refreshes in development.
+const globalWithCache = globalThis as typeof globalThis & {
+  sheetsCache?: Map<string, CacheEntry<any>>;
+  sheetsActiveRequests?: Map<string, Promise<any>>;
+};
+
+if (!globalWithCache.sheetsCache) {
+  globalWithCache.sheetsCache = new Map();
+}
+if (!globalWithCache.sheetsActiveRequests) {
+  globalWithCache.sheetsActiveRequests = new Map();
+}
+
+const sheetsCache = globalWithCache.sheetsCache;
+const sheetsActiveRequests = globalWithCache.sheetsActiveRequests;
+const CACHE_TTL_MS = 5000; // 5 seconds TTL
+
+export function clearSheetsCache() {
+  sheetsCache.clear();
+  sheetsActiveRequests.clear();
+}
+
+async function getCachedData<T>(key: string, fetchFn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const cached = sheetsCache.get(key);
+
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  let activePromise = sheetsActiveRequests.get(key);
+  if (!activePromise) {
+    activePromise = fetchFn()
+      .then((data) => {
+        sheetsCache.set(key, { data, timestamp: Date.now() });
+        sheetsActiveRequests.delete(key);
+        return data;
+      })
+      .catch((err) => {
+        sheetsActiveRequests.delete(key);
+        throw err;
+      });
+    sheetsActiveRequests.set(key, activePromise);
+  }
+
+  return activePromise;
+}
+
 export async function fetchPaymentsFromSheet(): Promise<Payment[]> {
   try {
-    const sheets = getSheetsClient();
+    return await getCachedData('payments', async () => {
+      const sheets = getSheetsClient();
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: PAYMENTS_READ_RANGE,
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: PAYMENTS_READ_RANGE,
+      });
+
+      const rows = response.data.values ?? [];
+
+      return rows
+        .map((row) => rowToPayment(row as string[]))
+        .filter((payment): payment is Payment => payment !== null);
     });
-
-    const rows = response.data.values ?? [];
-
-    return rows
-      .map((row) => rowToPayment(row as string[]))
-      .filter((payment): payment is Payment => payment !== null);
   } catch (error) {
     console.error('Failed to fetch payments from Google Sheets:', error);
     return [];
@@ -398,48 +457,54 @@ export async function fetchPaymentsFromSheet(): Promise<Payment[]> {
 }
 
 export async function fetchShootsFromSheet(): Promise<Shoot[]> {
-  const sheets = getSheetsClient();
+  return getCachedData('shoots', async () => {
+    const sheets = getSheetsClient();
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: SHOOT_READ_RANGE,
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: SHOOT_READ_RANGE,
+    });
+
+    const rows = response.data.values ?? [];
+
+    return rows
+      .map((row) => rowToShoot(row as string[]))
+      .filter((shoot): shoot is Shoot => shoot !== null);
   });
-
-  const rows = response.data.values ?? [];
-
-  return rows
-    .map((row) => rowToShoot(row as string[]))
-    .filter((shoot): shoot is Shoot => shoot !== null);
 }
 
 export async function fetchEditingFromSheet(): Promise<EditingProject[]> {
-  const sheets = getSheetsClient();
+  return getCachedData('editing', async () => {
+    const sheets = getSheetsClient();
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: EDITING_READ_RANGE,
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: EDITING_READ_RANGE,
+    });
+
+    const rows = response.data.values ?? [];
+
+    return rows
+      .map((row) => rowToEditingProject(row as string[]))
+      .filter((project): project is EditingProject => project !== null);
   });
-
-  const rows = response.data.values ?? [];
-
-  return rows
-    .map((row) => rowToEditingProject(row as string[]))
-    .filter((project): project is EditingProject => project !== null);
 }
 
 export async function fetchRevisionsFromSheet(): Promise<RevisionEntry[]> {
-  const sheets = getSheetsClient();
+  return getCachedData('revisions', async () => {
+    const sheets = getSheetsClient();
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: REVISIONS_READ_RANGE,
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: REVISIONS_READ_RANGE,
+    });
+
+    const rows = response.data.values ?? [];
+
+    return rows
+      .map((row) => rowToRevisionEntry(row as string[]))
+      .filter((revision): revision is RevisionEntry => revision !== null);
   });
-
-  const rows = response.data.values ?? [];
-
-  return rows
-    .map((row) => rowToRevisionEntry(row as string[]))
-    .filter((revision): revision is RevisionEntry => revision !== null);
 }
 
 export async function fetchLeadsWithPayments(): Promise<Lead[]> {
@@ -452,39 +517,43 @@ export async function fetchLeadsWithPayments(): Promise<Lead[]> {
 }
 
 export async function fetchClientsFromSheet(): Promise<Lead[]> {
-  const sheets = getSheetsClient();
+  return getCachedData('clients', async () => {
+    const sheets = getSheetsClient();
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: CLIENTS_READ_RANGE,
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: CLIENTS_READ_RANGE,
+    });
+
+    const [headers = [], ...rows] = response.data.values ?? [];
+    const salesNotesColumn = (headers as string[]).findIndex(
+      (header) => header.trim().toLowerCase() === 'sales_notes'
+    );
+    const proposalRevokeReasonColumn = (headers as string[]).findIndex(
+      (header) => header.trim().toLowerCase() === 'proposal_revoke_reason'
+    );
+
+    return rows
+      .map((row, index) =>
+        rowToLead(row as string[], index, salesNotesColumn, proposalRevokeReasonColumn)
+      )
+      .filter((lead): lead is Lead => lead !== null);
   });
-
-  const [headers = [], ...rows] = response.data.values ?? [];
-  const salesNotesColumn = (headers as string[]).findIndex(
-    (header) => header.trim().toLowerCase() === 'sales_notes'
-  );
-  const proposalRevokeReasonColumn = (headers as string[]).findIndex(
-    (header) => header.trim().toLowerCase() === 'proposal_revoke_reason'
-  );
-
-  return rows
-    .map((row, index) =>
-      rowToLead(row as string[], index, salesNotesColumn, proposalRevokeReasonColumn)
-    )
-    .filter((lead): lead is Lead => lead !== null);
 }
 
 export async function fetchPaymentInstallmentsFromSheet(leadId?: string): Promise<PaymentInstallment[]> {
   try {
-    const sheets = getSheetsClient();
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: PAYMENTS_WITH_HEADERS_READ_RANGE,
+    const installments = await getCachedData('payment_installments', async () => {
+      const sheets = getSheetsClient();
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: PAYMENTS_WITH_HEADERS_READ_RANGE,
+      });
+      const [headers = [], ...rows] = response.data.values ?? [];
+      return rows
+        .map((row) => rowToPaymentInstallment(row as string[], headers as string[]))
+        .filter((payment): payment is PaymentInstallment => payment !== null);
     });
-    const [headers = [], ...rows] = response.data.values ?? [];
-    const installments = rows
-      .map((row) => rowToPaymentInstallment(row as string[], headers as string[]))
-      .filter((payment): payment is PaymentInstallment => payment !== null);
 
     return leadId ? installments.filter((payment) => payment.lead_id === leadId) : installments;
   } catch (error) {
@@ -523,6 +592,9 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
       values: [row],
     },
   });
+
+  // Clear cache to ensure updated sheet content is retrieved
+  clearSheetsCache();
 
   const existingLeads = await fetchLeadsWithPayments();
   const createdLead = existingLeads.find((lead) => lead.leadId === leadId);
@@ -573,4 +645,288 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
     searchText: `${input.name.trim()} ${input.phoneNumber.trim()}`.toLowerCase(),
     payment: null,
   };
+}
+
+function findUserColumn(headers: string[], names: string[], fallback: number): number {
+  const normalized = headers.map(h => h.trim().toLowerCase().replace(/[\s_-]+/g, ''));
+  const targetNames = names.map(n => n.trim().toLowerCase().replace(/[\s_-]+/g, ''));
+  const index = targetNames.map(name => normalized.indexOf(name)).find(idx => idx >= 0);
+  return index ?? fallback;
+}
+
+export async function fetchBackendUsersFromSheet(): Promise<BackendUser[]> {
+  return getCachedData('backend_users', async () => {
+    try {
+      const sheets = getSheetsClient();
+      const spreadsheet = await sheets.spreadsheets.get({
+        spreadsheetId: SPREADSHEET_ID,
+      });
+      const sheetExists = spreadsheet.data.sheets?.some(
+        (s) => s.properties?.title === 'Users'
+      );
+
+      if (!sheetExists) {
+        // Create the Users sheet
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SPREADSHEET_ID,
+          requestBody: {
+            requests: [
+              {
+                addSheet: {
+                  properties: {
+                    title: 'Users',
+                  },
+                },
+              },
+            ],
+          },
+        });
+
+        // Populate it with headers and default users
+        const headers = ['id', 'name', 'email', 'phone', 'designation', 'role', 'initials', 'username', 'redirectTo', 'password'];
+        const defaultRows = BACKEND_USERS.map((user) => [
+          user.id,
+          user.name,
+          user.email,
+          user.phone,
+          user.designation,
+          user.role,
+          user.initials,
+          user.username,
+          user.redirectTo,
+          user.password || '',
+        ]);
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SPREADSHEET_ID,
+          range: 'Users!A1',
+          valueInputOption: 'USER_ENTERED',
+          requestBody: {
+            values: [headers, ...defaultRows],
+          },
+        });
+
+        return BACKEND_USERS;
+      }
+
+      // Read headers and data dynamically
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Users!A1:L',
+      });
+
+      const [headers = [], ...rows] = response.data.values ?? [];
+      
+      const idCol = findUserColumn(headers as string[], ['id', 'user_id', 'userid'], 0);
+      const nameCol = findUserColumn(headers as string[], ['name', 'full_name', 'fullname'], 1);
+      const emailCol = findUserColumn(headers as string[], ['email', 'email_address', 'emailaddress'], 2);
+      const phoneCol = findUserColumn(headers as string[], ['phone', 'phone_number', 'phonenumber', 'contact'], 3);
+      const designationCol = findUserColumn(headers as string[], ['designation', 'title', 'role_title'], 4);
+      const roleCol = findUserColumn(headers as string[], ['role', 'user_role'], 5);
+      const initialsCol = findUserColumn(headers as string[], ['initials'], -1);
+      const usernameCol = findUserColumn(headers as string[], ['username', 'user_name'], 7);
+      const redirectToCol = findUserColumn(headers as string[], ['redirectto', 'redirect_to', 'redirect'], 8);
+      const passwordCol = findUserColumn(headers as string[], ['password', 'pwd'], 9);
+
+      return rows
+        .map((row) => {
+          const id = row[idCol]?.trim() ?? '';
+          const name = row[nameCol]?.trim() ?? '';
+          const email = row[emailCol]?.trim() ?? '';
+          const phone = row[phoneCol]?.trim() ?? '';
+          const designation = row[designationCol]?.trim() ?? '';
+          const role = (row[roleCol]?.trim() ?? 'sales') as UserRole;
+          
+          let initials = initialsCol >= 0 && row[initialsCol] ? row[initialsCol].trim() : '';
+          if (!initials && name) {
+            initials = name.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
+          }
+
+          const username = row[usernameCol]?.trim() ?? '';
+          const redirectTo = row[redirectToCol]?.trim() ?? '';
+          const password = row[passwordCol]?.trim() ?? '';
+
+          return {
+            id,
+            name,
+            email,
+            phone,
+            designation,
+            role,
+            initials,
+            username,
+            redirectTo,
+            password,
+          };
+        })
+        .filter((u) => u.id);
+    } catch (err) {
+      console.error('Failed to fetch backend users from Google Sheets:', err);
+      return BACKEND_USERS;
+    }
+  });
+}
+
+export async function updateBackendUserInSheet(
+  id: string,
+  data: Partial<BackendUser>
+): Promise<boolean> {
+  try {
+    const users = await fetchBackendUsersFromSheet();
+    const index = users.findIndex((u) => u.id === id);
+    if (index === -1) return false;
+
+    const user = users[index];
+    if (data.name !== undefined) user.name = data.name.trim();
+    if (data.email !== undefined) user.email = data.email.trim();
+    if (data.phone !== undefined) user.phone = data.phone.trim();
+    if (data.designation !== undefined) user.designation = data.designation.trim();
+    if (data.role !== undefined) user.role = data.role;
+    if (data.username !== undefined) user.username = data.username.trim().toLowerCase();
+    if (data.redirectTo !== undefined) user.redirectTo = data.redirectTo.trim();
+    if (data.password !== undefined) user.password = data.password.trim();
+
+    if (data.name !== undefined) {
+      user.initials = user.name.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
+    }
+    if (data.initials !== undefined) user.initials = data.initials.trim();
+
+    const sheets = getSheetsClient();
+    const headerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Users!A1:L1',
+    });
+    const headers = headerResponse.data.values?.[0] ?? [];
+
+    const row = headers.map((header) => {
+      const h = header.trim().toLowerCase().replace(/[\s_-]+/g, '');
+      if (['id', 'user_id', 'userid'].includes(h)) return user.id;
+      if (['name', 'full_name', 'fullname'].includes(h)) return user.name;
+      if (['email', 'email_address', 'emailaddress'].includes(h)) return user.email;
+      if (['phone', 'phone_number', 'phonenumber', 'contact'].includes(h)) return user.phone;
+      if (['designation', 'title', 'role_title'].includes(h)) return user.designation;
+      if (['role', 'user_role'].includes(h)) return user.role;
+      if (['initials'].includes(h)) return user.initials;
+      if (['username', 'user_name'].includes(h)) return user.username;
+      if (['redirectto', 'redirect_to', 'redirect'].includes(h)) return user.redirectTo;
+      if (['password', 'pwd'].includes(h)) return user.password || '';
+      return '';
+    });
+
+    const rowNumber = index + 2;
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `Users!A${rowNumber}:${rowNumber}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [row],
+      },
+    });
+
+    clearSheetsCache();
+    return true;
+  } catch (err) {
+    console.error('Failed to update backend user in Google Sheets:', err);
+    return false;
+  }
+}
+
+export async function appendBackendUserToSheet(input: Omit<BackendUser, 'id' | 'initials'>): Promise<BackendUser> {
+  const users = await fetchBackendUsersFromSheet();
+  const nextId = 'u' + (users.length + 1);
+  const initials = input.name.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
+
+  const newUser: BackendUser = {
+    id: nextId,
+    initials,
+    ...input,
+  };
+
+  const sheets = getSheetsClient();
+  const headerResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'Users!A1:L1',
+  });
+  const headers = headerResponse.data.values?.[0] ?? [];
+
+  const row = headers.map((header) => {
+    const h = header.trim().toLowerCase().replace(/[\s_-]+/g, '');
+    if (['id', 'user_id', 'userid'].includes(h)) return newUser.id;
+    if (['name', 'full_name', 'fullname'].includes(h)) return newUser.name;
+    if (['email', 'email_address', 'emailaddress'].includes(h)) return newUser.email;
+    if (['phone', 'phone_number', 'phonenumber', 'contact'].includes(h)) return newUser.phone;
+    if (['designation', 'title', 'role_title'].includes(h)) return newUser.designation;
+    if (['role', 'user_role'].includes(h)) return newUser.role;
+    if (['initials'].includes(h)) return newUser.initials;
+    if (['username', 'user_name'].includes(h)) return newUser.username;
+    if (['redirectto', 'redirect_to', 'redirect'].includes(h)) return newUser.redirectTo;
+    if (['password', 'pwd'].includes(h)) return newUser.password || '';
+    return '';
+  });
+
+  const nextRow = users.length + 2;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `Users!A${nextRow}:${nextRow}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: {
+      values: [row],
+    },
+  });
+
+  clearSheetsCache();
+  return newUser;
+}
+
+export async function updateClientInSheet(leadId: string, input: Partial<CreateLeadInput> & { status?: string }): Promise<boolean> {
+  try {
+    const sheets = getSheetsClient();
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${CLIENTS_SHEET}!A2:A`,
+    });
+
+    const rows = response.data.values ?? [];
+    const index = rows.findIndex((row) => row[0]?.trim() === leadId);
+    if (index === -1) return false;
+
+    const rowNumber = index + 2;
+
+    const rowResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${CLIENTS_SHEET}!A${rowNumber}:AE${rowNumber}`,
+    });
+
+    const fullRow = rowResponse.data.values?.[0] ?? [];
+
+    while (fullRow.length < 31) {
+      fullRow.push('');
+    }
+
+    if (input.name !== undefined) fullRow[6] = input.name.trim();
+    if (input.phoneNumber !== undefined) fullRow[1] = input.phoneNumber.trim();
+    if (input.whatsapp !== undefined) fullRow[3] = input.whatsapp.trim();
+    if (input.servicePitched !== undefined) fullRow[8] = input.servicePitched.trim();
+    if (input.clientEmail !== undefined) fullRow[11] = input.clientEmail.trim();
+    if (input.cost !== undefined) fullRow[9] = input.cost.trim();
+    if (input.assignedTo !== undefined) fullRow[5] = input.assignedTo.trim();
+    if (input.status !== undefined) fullRow[10] = input.status.trim();
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${CLIENTS_SHEET}!A${rowNumber}:AE${rowNumber}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [fullRow],
+      },
+    });
+
+    clearSheetsCache();
+    return true;
+  } catch (err) {
+    console.error('Failed to update client in Google Sheets:', err);
+    return false;
+  }
 }

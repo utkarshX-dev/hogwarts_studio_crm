@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { BACKEND_USERS, type BackendUser } from './backend-users';
+import type { BackendUser } from './backend-users';
 
 export function getAuthenticatedUser(): BackendUser | null {
   try {
@@ -10,14 +10,8 @@ export function getAuthenticatedUser(): BackendUser | null {
     const parsed = JSON.parse(sessionCookie.value);
     if (!parsed || !parsed.email) return null;
 
-    const user = BACKEND_USERS.find(
-      (u) => u.email.toLowerCase() === parsed.email.toLowerCase()
-    );
-    if (!user) return null;
-
-    // Return user details without password
-    const { password, ...sanitized } = user;
-    return sanitized as BackendUser;
+    // Return user details directly from cookie (already sanitized)
+    return parsed as BackendUser;
   } catch (error) {
     console.error('Error getting server authenticated user:', error);
     return null;

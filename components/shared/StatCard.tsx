@@ -13,7 +13,7 @@ interface StatCardProps {
 
 export function StatCard({ title, value, description, icon: Icon, trend, className }: StatCardProps) {
   return (
-    <Card className={cn('overflow-hidden', className)}>
+    <Card className={cn('overflow-hidden card-hover-effect', className)}>
       <CardContent className="p-5">
         <div className="flex items-start justify-between">
           <div className="space-y-1.5">

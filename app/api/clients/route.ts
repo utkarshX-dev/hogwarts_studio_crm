@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { appendClientToSheet, fetchLeadsWithPayments, fetchEditingFromSheet, fetchShootsFromSheet } from '@/lib/google/sheets';
+import { appendClientToSheet, fetchLeadsWithPayments, fetchEditingFromSheet, fetchShootsFromSheet, updateClientInSheet } from '@/lib/google/sheets';
 import type { CreateLeadInput } from '@/lib/sheets/types';
 import { getAuthenticatedUser } from '@/lib/auth-server';
 
@@ -116,6 +116,80 @@ export async function POST(request: Request) {
     console.error('Failed to create client in Google Sheets:', error);
     const message =
       error instanceof Error ? error.message : 'Failed to create lead';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const user = getAuthenticatedUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Only manager, sales, and admin roles can edit clients
+    if (!['manager', 'sales', 'admin'].includes(user.role)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const leadId = String(body.leadId ?? '').trim();
+    const name = String(body.name ?? '').trim();
+    const phoneNumber = String(body.phoneNumber ?? body.contact ?? '').trim();
+    const whatsapp = String(body.whatsapp ?? '').trim();
+    const serviceKey = String(body.service ?? '').trim();
+    const assignedTo = String(body.assignedTo ?? '').trim();
+    const clientEmail = String(body.clientEmail ?? '').trim();
+    const cost = String(body.cost ?? '').trim();
+    const status = String(body.status ?? '').trim();
+
+    if (!leadId) {
+      return NextResponse.json({ error: 'Lead ID is required' }, { status: 400 });
+    }
+
+    if (!name) {
+      return NextResponse.json({ error: 'Client name is required' }, { status: 400 });
+    }
+
+    if (!phoneNumber) {
+      return NextResponse.json({ error: 'Contact number is required' }, { status: 400 });
+    }
+
+    // If user is sales, verify they own this lead
+    if (user.role === 'sales') {
+      const leads = await fetchLeadsWithPayments();
+      const isAssigned = leads.some(
+        (l) =>
+          l.leadId === leadId &&
+          (l.assignedTo.trim().toLowerCase() === user.name.trim().toLowerCase() ||
+            l.assignedTo.trim().toLowerCase() === user.email.trim().toLowerCase() ||
+            l.assignedTo.trim().toLowerCase() === user.username.trim().toLowerCase())
+      );
+      if (!isAssigned) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    const input = {
+      name,
+      phoneNumber: phoneNumber,
+      whatsapp: whatsapp || undefined,
+      servicePitched: SERVICE_LABELS[serviceKey] ?? serviceKey,
+      assignedTo,
+      clientEmail: clientEmail || undefined,
+      cost: cost || undefined,
+      status: status || undefined,
+    };
+
+    const success = await updateClientInSheet(leadId, input);
+    if (!success) {
+      return NextResponse.json({ error: 'Client not found or update failed' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Failed to update client in Google Sheets:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update lead';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

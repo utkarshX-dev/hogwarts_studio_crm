@@ -62,7 +62,7 @@ export default function LoginPage() {
         <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-xl shadow-2xl rounded-2xl overflow-hidden">
           <div className="h-1.5 w-full bg-gradient-to-r from-amber-500 via-violet-500 to-indigo-500" />
           <CardContent className="p-6 md:p-8 space-y-6">
-            <div className="space-y-1">
+            <div className="space-y-1 text-center">
               <h2 className="text-xl font-semibold text-slate-100">Welcome back</h2>
               <p className="text-sm text-slate-400">Sign in with your employee email credentials</p>
             </div>

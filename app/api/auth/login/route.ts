@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { BACKEND_USERS } from '@/lib/backend-users';
+import { fetchBackendUsersFromSheet } from '@/lib/google/sheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = BACKEND_USERS.find((u) => u.email.toLowerCase() === email);
+    const users = await fetchBackendUsersFromSheet();
+    const user = users.find((u) => u.email.toLowerCase() === email);
 
     if (!user || user.password !== password) {
       return NextResponse.json(
