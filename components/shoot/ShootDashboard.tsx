@@ -465,10 +465,10 @@ export function ShootDashboard({ initialShoots }: ShootDashboardProps) {
     shootNotes: '',
   });
 
-  const refreshShoots = useCallback(async (silent = false) => {
+  const refreshShoots = useCallback(async (silent = false, forceFresh = false) => {
     if (!silent) setRefreshing(true);
     try {
-      const response = await fetch('/api/shoots', { cache: 'no-store' });
+      const response = await fetch(`/api/shoots${forceFresh ? '?fresh=1' : ''}`, { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Failed to refresh shoots');
       setShoots(data.shoots ?? []);
@@ -482,6 +482,10 @@ export function ShootDashboard({ initialShoots }: ShootDashboardProps) {
       if (!silent) setRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    void refreshShoots(true, true);
+  }, [refreshShoots]);
 
   useEffect(() => {
     const interval = setInterval(() => refreshShoots(true), 30000);
@@ -692,7 +696,7 @@ export function ShootDashboard({ initialShoots }: ShootDashboardProps) {
             <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/30">
               {pendingUploads} pending uploads
             </Badge>
-            <Button variant="outline" size="sm" onClick={() => refreshShoots()} disabled={refreshing}>
+            <Button variant="outline" size="sm" onClick={() => refreshShoots(false, true)} disabled={refreshing}>
               Refresh
             </Button>
           </div>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { appendClientToSheet, fetchLeadsWithPayments, fetchEditingFromSheet, fetchShootsFromSheet, updateClientInSheet } from '@/lib/google/sheets';
+import { appendClientToSheet, clearSheetsCache, fetchLeadsWithPayments, fetchEditingFromSheet, fetchShootsFromSheet, updateClientInSheet } from '@/lib/google/sheets';
 import type { CreateLeadInput } from '@/lib/sheets/types';
 import { getAuthenticatedUser } from '@/lib/auth-server';
 
@@ -14,11 +14,18 @@ const SERVICE_LABELS: Record<string, string> = {
   social_media: 'Social Media',
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const user = getAuthenticatedUser();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // A page re-entry can otherwise reuse the short-lived shared Sheets cache.
+    // The dashboard asks for this only when it needs to reconcile its initial
+    // server render with the latest spreadsheet rows.
+    if (new URL(request.url).searchParams.get('fresh') === '1') {
+      clearSheetsCache();
     }
 
     const leads = await fetchLeadsWithPayments();

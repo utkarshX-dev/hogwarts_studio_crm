@@ -543,10 +543,10 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     }
   }, [shootMembers, scheduleForm.shootMemberName]);
 
-  const refreshLeads = useCallback(async (silent = false) => {
+  const refreshLeads = useCallback(async (silent = false, forceFresh = false) => {
     if (!silent) setRefreshing(true);
     try {
-      const response = await fetch('/api/clients', { cache: 'no-store' });
+      const response = await fetch(`/api/clients${forceFresh ? '?fresh=1' : ''}`, { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error ?? 'Failed to refresh leads');
@@ -617,6 +617,13 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       }
     }
   }, []);
+
+  useEffect(() => {
+    // Server component data may have been produced from a short-lived Sheets
+    // cache during a quick tab switch. Reconcile immediately on entry rather
+    // than making the employee wait for the 30-second polling interval.
+    void refreshLeads(true, true);
+  }, [refreshLeads]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1494,7 +1501,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => refreshLeads()}
+              onClick={() => refreshLeads(false, true)}
               disabled={refreshing}
             >
               <RefreshCw className={cn('mr-1.5 h-4 w-4', refreshing && 'animate-spin')} />

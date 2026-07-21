@@ -1,14 +1,18 @@
 import { NextResponse } from 'next/server';
-import { fetchShootsFromSheet, fetchLeadsWithPayments, fetchEditingFromSheet } from '@/lib/google/sheets';
+import { clearSheetsCache, fetchShootsFromSheet, fetchLeadsWithPayments, fetchEditingFromSheet } from '@/lib/google/sheets';
 import { getAuthenticatedUser } from '@/lib/auth-server';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const user = getAuthenticatedUser();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (new URL(request.url).searchParams.get('fresh') === '1') {
+      clearSheetsCache();
     }
 
     const shoots = await fetchShootsFromSheet();
