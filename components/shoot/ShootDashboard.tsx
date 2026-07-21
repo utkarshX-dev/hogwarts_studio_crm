@@ -45,7 +45,7 @@ interface PostShootForm {
   shootNotes: string;
 }
 
-type HandoverRecipient = Pick<User, 'name' | 'email'>;
+type HandoverRecipient = Pick<User, 'name' | 'email'> & { key: string };
 
 const DURATION_HOURS = Array.from({ length: 25 }, (_, index) => String(index));
 const DURATION_MINUTES = Array.from({ length: 60 }, (_, index) =>
@@ -321,7 +321,7 @@ function ShootCard({
   uploading: boolean;
   handoverRecipients: HandoverRecipient[];
   selectedHandover?: HandoverRecipient;
-  onHandoverRecipientChange: (shootId: string, email: string) => void;
+  onHandoverRecipientChange: (shootId: string, recipientKey: string) => void;
   handingOver: boolean;
   confirmedHandover?: HandoverRecipient;
 }) {
@@ -395,16 +395,17 @@ function ShootCard({
                     Hand over hard disk to
                   </Label>
                   <Select
-                    value={selectedHandover?.email ?? ''}
-                    onValueChange={(email) => onHandoverRecipientChange(shoot.shootId, email)}
+                    value={selectedHandover?.key ?? ''}
+                    onValueChange={(recipientKey) => onHandoverRecipientChange(shoot.shootId, recipientKey)}
                     disabled={Boolean(confirmedHandover)}
                   >
                     <SelectTrigger id={`handover-to-${shoot.id}`} className="h-9 text-sm">
-                      <SelectValue placeholder="Select a sales or editor team member" />
+                      <SelectValue placeholder="Select the handover recipient" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="client">Client — {shoot.clientName || 'Unnamed client'}</SelectItem>
                       {handoverRecipients.map((recipient) => (
-                        <SelectItem key={recipient.email} value={recipient.email}>
+                        <SelectItem key={recipient.key} value={recipient.key}>
                           {recipient.name}
                         </SelectItem>
                       ))}
@@ -495,7 +496,9 @@ export function ShootDashboard({ initialShoots }: ShootDashboardProps) {
         if (!response.ok) throw new Error(data.error ?? 'Failed to load users');
 
         setHandoverRecipients(
-          (data.users ?? []).filter((user: User) => user.role === 'sales' || user.role === 'editor')
+          (data.users ?? [])
+            .filter((user: User) => user.role === 'sales' || user.role === 'editor')
+            .map((user: User) => ({ ...user, key: user.email }))
         );
       } catch (error) {
         toast.error('Failed to load handover recipients', {
@@ -656,8 +659,10 @@ export function ShootDashboard({ initialShoots }: ShootDashboardProps) {
             uploading={uploadingId === shoot.shootId}
             handoverRecipients={handoverRecipients}
             selectedHandover={selectedHandovers[shoot.shootId]}
-            onHandoverRecipientChange={(shootId, email) => {
-              const recipient = handoverRecipients.find((user) => user.email === email);
+            onHandoverRecipientChange={(shootId, recipientKey) => {
+              const recipient = recipientKey === 'client'
+                ? { key: 'client', name: shoot.clientName || 'Client', email: shoot.emailId }
+                : handoverRecipients.find((user) => user.key === recipientKey);
               if (recipient) {
                 setSelectedHandovers((prev) => ({ ...prev, [shootId]: recipient }));
               }
