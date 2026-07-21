@@ -251,16 +251,20 @@ function buildMonthDays(month: Date) {
   });
 }
 
-function calculateHours(start: string, end: string) {
-  if (!start || !end) return '';
-  const [startHour, startMinute] = start.split(':').map(Number);
-  const [endHour, endMinute] = end.split(':').map(Number);
-  if ([startHour, startMinute, endHour, endMinute].some((value) => Number.isNaN(value))) {
+function calculateEndTime(start: string, totalHours: string) {
+  if (!start || !totalHours) return '';
+  const [hour, minute] = start.split(':').map(Number);
+  const durationMinutes = Math.round(Number(totalHours) * 60);
+
+  if (
+    [hour, minute, durationMinutes].some((value) => Number.isNaN(value)) ||
+    hour < 0 || hour > 23 || minute < 0 || minute > 59 || durationMinutes <= 0
+  ) {
     return '';
   }
-  const diff = endHour * 60 + endMinute - (startHour * 60 + startMinute);
-  if (diff <= 0) return '';
-  return (diff / 60).toFixed(2).replace(/\.00$/, '');
+
+  const endMinutes = (hour * 60 + minute + durationMinutes) % (24 * 60);
+  return `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
 }
 
 function parseCost(value: string): number {
@@ -272,10 +276,12 @@ function TimeOfDaySelect({
   id,
   value,
   onChange,
+  disabled = false,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   const [parts, setParts] = useState(() => parseTimeParts(value));
 
@@ -294,7 +300,7 @@ function TimeOfDaySelect({
 
   return (
     <div className="grid grid-cols-[1fr_1fr_88px] gap-2">
-      <Select value={parts.hour} onValueChange={(nextValue) => handlePartChange('hour', nextValue)}>
+      <Select value={parts.hour} onValueChange={(nextValue) => handlePartChange('hour', nextValue)} disabled={disabled}>
         <SelectTrigger id={`${id}-hour`} aria-label="Hour">
           <SelectValue placeholder="Hour" />
         </SelectTrigger>
@@ -309,6 +315,7 @@ function TimeOfDaySelect({
       <Select
         value={parts.minute}
         onValueChange={(nextValue) => handlePartChange('minute', nextValue)}
+        disabled={disabled}
       >
         <SelectTrigger id={`${id}-minute`} aria-label="Minute">
           <SelectValue placeholder="Min" />
@@ -324,6 +331,7 @@ function TimeOfDaySelect({
       <Select
         value={parts.period}
         onValueChange={(nextValue) => handlePartChange('period', nextValue)}
+        disabled={disabled}
       >
         <SelectTrigger id={id} aria-label="AM or PM">
           <SelectValue placeholder="AM/PM" />
@@ -514,6 +522,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     shootDate: '',
     shootStartTime: '',
     shootEndTime: '',
+    totalHours: '',
     camera: '1',
     teleprompter: 'No',
     bts: 'No',
@@ -633,10 +642,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
     return map;
   }, [shoots]);
 
-  const totalHours = useMemo(
-    () => calculateHours(scheduleForm.shootStartTime, scheduleForm.shootEndTime),
-    [scheduleForm.shootStartTime, scheduleForm.shootEndTime]
-  );
+  const totalHours = scheduleForm.totalHours;
 
   const salesLeads = useMemo(() => {
     return filterSalesLeads(leads, user?.name, user?.role);
@@ -717,6 +723,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
       shootDate: '',
       shootStartTime: '',
       shootEndTime: '',
+      totalHours: '',
       camera: '1',
       teleprompter: 'No',
       bts: 'No',
@@ -2169,7 +2176,11 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                     id="shootStartTime"
                     value={scheduleForm.shootStartTime}
                     onChange={(value) => {
-                      setScheduleForm((prev) => ({ ...prev, shootStartTime: value }));
+                      setScheduleForm((prev) => ({
+                        ...prev,
+                        shootStartTime: value,
+                        shootEndTime: calculateEndTime(value, prev.totalHours),
+                      }));
                       setConflictError('');
                     }}
                   />
@@ -2179,15 +2190,32 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
                   <TimeOfDaySelect
                     id="shootEndTime"
                     value={scheduleForm.shootEndTime}
-                    onChange={(value) => {
-                      setScheduleForm((prev) => ({ ...prev, shootEndTime: value }));
-                      setConflictError('');
-                    }}
+                    onChange={() => undefined}
+                    disabled
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="totalHours">Total Hours</Label>
-                  <Input id="totalHours" value={totalHours} readOnly className="bg-muted" />
+                  <Input
+                    id="totalHours"
+                    type="number"
+                    min="0.25"
+                    step="0.25"
+                    required
+                    disabled={!scheduleForm.shootStartTime}
+                    value={totalHours}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setScheduleForm((prev) => ({
+                        ...prev,
+                        totalHours: value,
+                        shootEndTime: calculateEndTime(prev.shootStartTime, value),
+                      }));
+                      setConflictError('');
+                    }}
+                    placeholder={scheduleForm.shootStartTime ? 'e.g. 1.5' : 'Select a start time first'}
+                  />
+                  <p className="text-xs text-muted-foreground">End time is calculated automatically.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="teleprompter">Teleprompter</Label>
