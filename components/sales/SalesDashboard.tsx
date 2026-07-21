@@ -33,7 +33,7 @@ import { Plus, Users, FileText, Wallet, TrendingUp, Send, RefreshCw, Loader2, Ca
 import { formatINR } from '@/lib/formatter';
 import { useAuth } from '@/lib/auth-context';
 import type { EditingProject, Lead, LeadFilterTab, Shoot } from '@/lib/sheets/types';
-import type { InstallmentLabel, PaymentInstallment, PaymentMode } from '@/lib/types';
+import type { InstallmentLabel, PaymentInstallment, PaymentMode, User } from '@/lib/types';
 import {
   filterSalesLeads,
   isPendingPaymentVerification,
@@ -104,6 +104,23 @@ const INSTALLMENT_LABELS: InstallmentLabel[] = ['Advance', 'Day Before Shoot', '
 
 type TimePeriod = (typeof TIME_PERIODS)[number];
 type DeliverableKey = (typeof DELIVERABLE_FIELDS)[number]['key'];
+
+function getAssignedSalespersonName(assignedTo: string, users: User[]) {
+  const normalizedAssignee = assignedTo.trim().toLowerCase();
+  if (!normalizedAssignee) return assignedTo;
+
+  const salesperson = users.find((user) => {
+    if (user.role !== 'sales' && user.role !== 'manager') return false;
+    return (
+      user.name.trim().toLowerCase() === normalizedAssignee ||
+      user.email.trim().toLowerCase() === normalizedAssignee ||
+      user.username.trim().toLowerCase() === normalizedAssignee ||
+      user.name.trim().toLowerCase().split(/\s+/)[0] === normalizedAssignee
+    );
+  });
+
+  return salesperson?.name ?? assignedTo;
+}
 
 function isVerifiedInstallment(payment: PaymentInstallment): boolean {
   return payment.payment_mode === 'Cash' || ['payment verified', 'payment confirmed', 'confirmed', 'cash received'].includes(payment.payment_status.trim().toLowerCase());
@@ -733,6 +750,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
 
     setSchedulingShoot(true);
     try {
+      const assignedTo = getAssignedSalespersonName(scheduleLead.assignedTo, users);
       const payload = {
         lead_id: scheduleLead.leadId,
         client_name: scheduleLead.name,
@@ -748,7 +766,7 @@ export function SalesDashboard({ initialLeads, initialShoots, initialEditing }: 
         record_time: scheduleForm.recordTime,
         set_name: scheduleForm.setName,
         studio_time: scheduleForm.studioTime,
-        assigned_to: scheduleLead.assignedTo,
+        assigned_to: assignedTo,
         shoot_member_name: scheduleForm.shootMemberName,
         shoot_member_email: scheduleForm.shootMemberEmail,
       };

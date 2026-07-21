@@ -154,6 +154,8 @@ export default function EditorPage() {
   const [submittingDraftId, setSubmittingDraftId] = useState<string | null>(null);
   const [arrangingCallId, setArrangingCallId] = useState<string | null>(null);
   const [deliverableDone, setDeliverableDone] = useState<Record<string, Partial<Record<DeliverableKey, boolean>>>>({});
+  const [activeTab, setActiveTab] = useState('assigned');
+  const tabsRef = useRef<HTMLDivElement>(null);
   // Keep the previous server snapshot outside render state. `revisions` is a
   // newly filtered array on every render, so storing it in state here would
   // trigger this effect again indefinitely.
@@ -201,6 +203,13 @@ export default function EditorPage() {
   const drafts = editorEdits.filter((edit) => edit.status === 'Draft Sent');
   const revisions = editorEdits.filter((edit) => edit.status === 'Revision Requested');
   const delivered = editorEdits.filter((edit) => edit.status === 'Delivered' && edit.finalDelivered);
+
+  const openTab = (tab: string) => {
+    setActiveTab(tab);
+    window.requestAnimationFrame(() => {
+      tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   useEffect(() => {
     const prevRevisions = prevRevisionsRef.current;
@@ -292,19 +301,20 @@ export default function EditorPage() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <StatCard title="Assigned" value={assigned.length} icon={Scissors} />
-        <StatCard title="Drafts Sent" value={drafts.length} icon={FileText} />
-        <StatCard title="In Revision" value={revisions.length} icon={AlertCircle} />
-        <StatCard title="Delivered" value={delivered.length} icon={CheckCircle} />
+        <StatCard title="Assigned" value={assigned.length} icon={Scissors} onClick={() => openTab('assigned')} />
+        <StatCard title="Drafts Sent" value={drafts.length} icon={FileText} onClick={() => openTab('drafts')} />
+        <StatCard title="In Revision" value={revisions.length} icon={AlertCircle} onClick={() => openTab('revisions')} />
+        <StatCard title="Delivered" value={delivered.length} icon={CheckCircle} onClick={() => openTab('delivered')} />
       </div>
 
-      <Tabs defaultValue="assigned">
-        <TabsList>
-          <TabsTrigger value="assigned">Assigned</TabsTrigger>
-          <TabsTrigger value="drafts">Drafts</TabsTrigger>
-          <TabsTrigger value="revisions">Revisions</TabsTrigger>
-          <TabsTrigger value="delivered">Delivered</TabsTrigger>
-        </TabsList>
+      <div ref={tabsRef} className="scroll-mt-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="assigned">Assigned</TabsTrigger>
+            <TabsTrigger value="drafts">Drafts</TabsTrigger>
+            <TabsTrigger value="revisions">Revisions</TabsTrigger>
+            <TabsTrigger value="delivered">Delivered</TabsTrigger>
+          </TabsList>
 
         <TabsContent value="assigned" className="mt-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -497,7 +507,8 @@ export default function EditorPage() {
             )}
           </div>
         </TabsContent>
-      </Tabs>
+        </Tabs>
+      </div>
     </div>
   );
 }
