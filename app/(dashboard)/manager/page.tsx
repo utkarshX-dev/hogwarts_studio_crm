@@ -59,6 +59,33 @@ const DEFAULT_DELIVERABLES: DeliverableValues = {
   thumbnail: '0',
 };
 
+const ASSIGNMENT_DELIVERABLE_FIELDS = [
+  { key: 'podcastEdit', label: 'Podcast Edit' },
+  { key: 'teaserEdit', label: 'Teaser Edit' },
+  { key: 'reelEdit', label: 'Reel Edit' },
+  { key: 'thumbnailEdit', label: 'Thumbnail Edit' },
+  { key: 'longFormatVideo', label: 'Long Form Edit', durationKey: 'longFormatDuration' },
+  { key: 'shortFormatVideo', label: 'Short Form Edit', durationKey: 'shortFormatDuration' },
+] as const;
+
+type AssignmentDeliverableKey = (typeof ASSIGNMENT_DELIVERABLE_FIELDS)[number]['key'];
+
+type AssignmentDeliverableValues = Record<AssignmentDeliverableKey, string> & {
+  longFormatDuration: string;
+  shortFormatDuration: string;
+};
+
+const DEFAULT_ASSIGNMENT_DELIVERABLES: AssignmentDeliverableValues = {
+  podcastEdit: '0',
+  teaserEdit: '0',
+  reelEdit: '0',
+  thumbnailEdit: '0',
+  longFormatVideo: '0',
+  longFormatDuration: '',
+  shortFormatVideo: '0',
+  shortFormatDuration: '',
+};
+
 function normalizeQuantity(value: unknown) {
   const parsed = Number(value ?? 0);
   if (!Number.isFinite(parsed) || parsed < 0) return '0';
@@ -83,6 +110,20 @@ function leadDeliverables(lead: Lead | undefined): DeliverableValues {
     teaserDemo: normalizeQuantity(lead.teaserDemo),
     teaser: normalizeQuantity(lead.teaser),
     thumbnail: normalizeQuantity(lead.thumbnail),
+  };
+}
+
+function leadAssignmentDeliverables(lead: Lead | undefined): AssignmentDeliverableValues {
+  if (!lead) return { ...DEFAULT_ASSIGNMENT_DELIVERABLES };
+  return {
+    podcastEdit: normalizeQuantity(lead.podcastEdit),
+    teaserEdit: normalizeQuantity(lead.teaserEdit),
+    reelEdit: normalizeQuantity(lead.reelEdit),
+    thumbnailEdit: normalizeQuantity(lead.thumbnailEdit),
+    longFormatVideo: normalizeQuantity(lead.longFormatVideo),
+    longFormatDuration: lead.longFormatDuration ?? '',
+    shortFormatVideo: normalizeQuantity(lead.shortFormatVideo),
+    shortFormatDuration: lead.shortFormatDuration ?? '',
   };
 }
 
@@ -240,8 +281,9 @@ export default function ManagerPage() {
     editorName: 'Shubham Singh Rana',
     editorEmail: 'shubham@hogwartsstudios.com',
     dataLink: '',
-    totalService: '1',
-    ...DEFAULT_DELIVERABLES,
+    additionalProduct: '',
+    managerComment: '',
+    ...DEFAULT_ASSIGNMENT_DELIVERABLES,
   });
 
   useEffect(() => {
@@ -333,12 +375,13 @@ export default function ManagerPage() {
     const lead = leads.find((item) => item.leadId === shoot.leadId);
     setAssignShoot(shoot);
     setAssignForm({
-      serviceType: '',
+      serviceType: lead?.servicePitched ?? '',
       editorName: editors[0]?.name || 'Shubham Singh Rana',
       editorEmail: editors[0]?.email || 'shubham@hogwartsstudios.com',
       dataLink: shoot.dataLink,
-      totalService: '1',
-      ...leadDeliverables(lead),
+      additionalProduct: '',
+      managerComment: '',
+      ...leadAssignmentDeliverables(lead),
     });
   };
 
@@ -348,27 +391,33 @@ export default function ManagerPage() {
 
     setAssigningEditor(true);
     try {
-      await postWebhook('/assign-editor', {
-        shoot_id: assignShoot.shootId,
-        lead_id: assignShoot.leadId,
-        client_name: assignShoot.clientName,
-        email_id: assignShoot.emailId,
-        client_email: assignShoot.emailId,
-        data_link: assignForm.dataLink,
-        service_type: assignForm.serviceType,
-        editor_name: assignForm.editorName,
-        editor_email: assignForm.editorEmail,
-        total_service: assignForm.totalService,
-        podcast_draft: normalizeQuantity(assignForm.podcastDraft),
-        podcast_edit: normalizeQuantity(assignForm.podcastEdit),
-        reel_draft: normalizeQuantity(assignForm.reelDraft),
-        reel_edit: normalizeQuantity(assignForm.reelEdit),
-        reel: normalizeQuantity(assignForm.reelEdit),
-        long_format_video: normalizeQuantity(assignForm.longFormatVideo),
-        teaser_demo: normalizeQuantity(assignForm.teaserDemo),
-        teaser: normalizeQuantity(assignForm.teaser),
-        thumbnail: normalizeQuantity(assignForm.thumbnail),
+      const response = await fetch('/api/assign-editor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shoot_id: assignShoot.shootId,
+          lead_id: assignShoot.leadId,
+          client_name: assignShoot.clientName,
+          email_id: assignShoot.emailId,
+          client_email: assignShoot.emailId,
+          data_link: assignForm.dataLink,
+          service_type: assignForm.serviceType,
+          editor_name: assignForm.editorName,
+          editor_email: assignForm.editorEmail,
+          podcast_edit: normalizeQuantity(assignForm.podcastEdit),
+          reel_edit: normalizeQuantity(assignForm.reelEdit),
+          long_format_video: normalizeQuantity(assignForm.longFormatVideo),
+          long_format_duration: assignForm.longFormatDuration.trim(),
+          short_format_video: normalizeQuantity(assignForm.shortFormatVideo),
+          short_format_duration: assignForm.shortFormatDuration.trim(),
+          teaser_edit: normalizeQuantity(assignForm.teaserEdit),
+          thumbnail_edit: normalizeQuantity(assignForm.thumbnailEdit),
+          additional_product: assignForm.additionalProduct,
+          manager_comment: assignForm.managerComment.trim(),
+        }),
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? 'Failed to assign editor');
       toast.success('Editor assigned!');
       setAssignShoot(null);
       await refreshEditing();
@@ -702,32 +751,67 @@ export default function ManagerPage() {
                   <div>
                     <p className="text-sm font-medium">Deliverable Assignment</p>
                     <p className="text-xs text-muted-foreground">
-                      Prefilled from the client proposal. Adjust before assigning if needed.
+                      Automatically fetched from the client proposal.
                     </p>
                   </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {DELIVERABLE_FIELDS.map((field) => (
-                      <div className="space-y-2" key={field.key}>
-                        <Label htmlFor={`assign-${field.key}`}>{field.label}</Label>
-                        <Input
-                          id={`assign-${field.key}`}
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={assignForm[field.key]}
-                          onChange={(event) =>
-                            setAssignForm((prev) => ({
-                              ...prev,
-                              [field.key]: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    ))}
+                    {ASSIGNMENT_DELIVERABLE_FIELDS.map((field) => {
+                      const durationKey = 'durationKey' in field ? field.durationKey : null;
+
+                      if (durationKey) {
+                        return (
+                          <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2" key={field.key}>
+                            <div className="space-y-2">
+                              <Label htmlFor={`assign-${field.key}`}>{field.label}</Label>
+                              <Input
+                                id={`assign-${field.key}`}
+                                value={assignForm[field.key]}
+                                readOnly
+                                className="bg-muted"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor={`assign-${durationKey}`}>Duration</Label>
+                              <Input
+                                id={`assign-${durationKey}`}
+                                value={assignForm[durationKey]}
+                                readOnly
+                                className="bg-muted"
+                              />
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2" key={field.key}>
+                          <Label htmlFor={`assign-${field.key}`}>{field.label}</Label>
+                          <Input
+                            id={`assign-${field.key}`}
+                            value={assignForm[field.key]}
+                            readOnly
+                            className="bg-muted"
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
-                  <p className="text-sm font-medium">
-                    Total deliverables: {totalDeliverables(assignForm)}
-                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="additional-product">Additional Products</Label>
+                  <Select
+                    value={assignForm.additionalProduct}
+                    onValueChange={(value) => setAssignForm((prev) => ({ ...prev, additionalProduct: value }))}
+                  >
+                    <SelectTrigger id="additional-product">
+                      <SelectValue placeholder="Choose an additional product" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ASSIGNMENT_DELIVERABLE_FIELDS.map((field) => (
+                        <SelectItem key={field.key} value={field.label}>{field.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Editor</Label>
@@ -809,15 +893,14 @@ export default function ManagerPage() {
                     onChange={(event) => setAssignForm((prev) => ({ ...prev, dataLink: event.target.value }))}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="total-service">Total Service</Label>
-                  <Input
-                    id="total-service"
-                    type="number"
-                    min="1"
-                    required
-                    value={assignForm.totalService}
-                    onChange={(event) => setAssignForm((prev) => ({ ...prev, totalService: event.target.value }))}
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="manager-comment">Manager Comment</Label>
+                  <Textarea
+                    id="manager-comment"
+                    value={assignForm.managerComment}
+                    onChange={(event) => setAssignForm((prev) => ({ ...prev, managerComment: event.target.value }))}
+                    placeholder="Add any instructions for the editor..."
+                    rows={3}
                   />
                 </div>
               </div>

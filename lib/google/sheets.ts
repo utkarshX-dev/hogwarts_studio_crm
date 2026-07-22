@@ -71,23 +71,24 @@ function rowToLead(
     reelDraft: row[17]?.trim() ?? '',
     reelEdit: row[18]?.trim() ?? '',
     longFormatVideo: row[19]?.trim() ?? '',
-    // The Clients sheet has `teaser_edit` and `thumbnail_edit`, not separate
+    // Column 20 is intentionally blank in the Clients tab. The sheet then has
+    // `teaser_edit` and `thumbnail_edit`, not separate
     // teaser-demo/final-teaser columns. Keep the legacy aliases populated for
     // existing dashboards while exposing the actual sheet fields as well.
-    teaserEdit: row[20]?.trim() ?? '',
-    teaserDemo: row[20]?.trim() ?? '',
-    teaser: row[20]?.trim() ?? '',
-    thumbnailEdit: row[21]?.trim() ?? '',
-    thumbnail: row[21]?.trim() ?? '',
-    serviceNotes: row[22]?.trim() ?? '',
-    camera: row[23]?.trim() ?? '',
-    recordTime: row[24]?.trim() ?? '',
-    studioTime: row[25]?.trim() ?? '',
-    remainingAmount: row[26]?.trim() ?? '',
-    shortFormatVideo: row[27]?.trim() ?? '',
-    longFormatDuration: row[28]?.trim() ?? '',
-    shortFormatDuration: row[29]?.trim() ?? '',
-    additionalNotes: row[30]?.trim() ?? '',
+    teaserEdit: row[21]?.trim() ?? '',
+    teaserDemo: row[21]?.trim() ?? '',
+    teaser: row[21]?.trim() ?? '',
+    thumbnailEdit: row[22]?.trim() ?? '',
+    thumbnail: row[22]?.trim() ?? '',
+    serviceNotes: row[23]?.trim() ?? '',
+    camera: row[24]?.trim() ?? '',
+    recordTime: row[25]?.trim() ?? '',
+    studioTime: row[26]?.trim() ?? '',
+    remainingAmount: row[27]?.trim() ?? '',
+    shortFormatVideo: row[28]?.trim() ?? '',
+    longFormatDuration: row[29]?.trim() ?? '',
+    shortFormatDuration: row[30]?.trim() ?? '',
+    additionalNotes: '',
     salesNotes: salesNotesColumn >= 0 ? row[salesNotesColumn]?.trim() ?? '' : '',
     proposalRevokeReason:
       proposalRevokeReasonColumn >= 0 ? row[proposalRevokeReasonColumn]?.trim() ?? '' : '',
@@ -315,6 +316,7 @@ function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
     input.reelDraft?.trim() ?? '',
     input.reelEdit?.trim() ?? '',
     input.longFormatVideo?.trim() ?? '',
+    '',
     input.teaserEdit?.trim() ?? input.teaser?.trim() ?? input.teaserDemo?.trim() ?? '',
     input.thumbnailEdit?.trim() ?? input.thumbnail?.trim() ?? '',
     input.serviceNotes?.trim() ?? '',
@@ -325,7 +327,8 @@ function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
     input.shortFormatVideo?.trim() ?? '',
     input.longFormatDuration?.trim() ?? '',
     input.shortFormatDuration?.trim() ?? '',
-    input.additionalNotes?.trim() ?? '',
+    input.salesNotes?.trim() ?? '',
+    '',
   ];
 }
 
