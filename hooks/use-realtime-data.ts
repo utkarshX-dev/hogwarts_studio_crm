@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import type { Invoice } from '@/lib/types';
+import type { SalesMetrics, ShootMetrics, EditingMetrics } from '@/lib/sheets/types';
 
 export interface RealtimeAnalytics {
   totalRevenue: number;
@@ -22,6 +23,10 @@ export interface RealtimeAnalytics {
     completedProjects: number;
     specialization: string[];
   }>;
+  // New nested metric groups
+  salesMetrics?: SalesMetrics;
+  shootMetrics?: ShootMetrics;
+  editingMetrics?: EditingMetrics;
 }
 
 export function useRealtimeData() {

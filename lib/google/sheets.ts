@@ -647,13 +647,14 @@ async function getNextClientRow(sheets: ReturnType<typeof getSheetsClient>): Pro
   // Do not use values.append here. Google Sheets infers a "table" from the
   // contiguous filled cells, and the old malformed rows start at column V.
   // Reading the complete grid gives us the real last occupied row instead.
+  // buildLeadRow produces 33 columns (A:AG), so read the full width.
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${CLIENTS_SHEET}!A:AE`,
+    range: `${CLIENTS_SHEET}!A:AG`,
   });
 
   // Row 1 is the header. `values` retains rows up to the last row that has a
-  // value anywhere in A:AE, including rows whose first populated cell is V.
+  // value anywhere in A:AG, including rows whose first populated cell is V.
   return Math.max((response.data.values ?? []).length + 1, 2);
 }
 
@@ -665,9 +666,10 @@ export async function appendClientToSheet(input: CreateLeadInput): Promise<Lead>
 
   // Write to a fully-qualified row, starting at A. This deliberately bypasses
   // the append endpoint's table-detection behaviour.
+  // buildLeadRow produces 33 columns (A:AG) — range must cover all of them.
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${CLIENTS_SHEET}!A${nextRow}:AE${nextRow}`,
+    range: `${CLIENTS_SHEET}!A${nextRow}:AG${nextRow}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
       values: [row],

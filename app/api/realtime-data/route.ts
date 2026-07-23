@@ -3,6 +3,8 @@ import {
   fetchClientsFromSheet,
   fetchPaymentsFromSheet,
   fetchEditingFromSheet,
+  fetchShootsFromSheet,
+  fetchEditingTasksFromSheet,
 } from '@/lib/google/sheets';
 import type { Lead, Payment, EditingProject } from '@/lib/sheets/types';
 
@@ -34,8 +36,40 @@ function normalizeService(service: string | undefined): string {
   return 'Other';
 }
 
+/** Returns today's date as YYYY-MM-DD in IST (Asia/Kolkata, UTC+5:30). */
+function getTodayIST(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+/** Returns { year, month (0-indexed) } for the current month in IST. */
+function getThisMonthIST(): { year: number; month: number } {
+  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  return { year: ist.getFullYear(), month: ist.getMonth() };
+}
+
+/** Returns true if a YYYY-MM-DD date string falls in the given IST month. */
+function isInMonth(dateStr: string | undefined, year: number, month: number): boolean {
+  if (!dateStr) return false;
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return false;
+  return d.getFullYear() === year && d.getMonth() === month;
+}
+
+/** Safe numeric parse — returns 0 for falsy / NaN. */
+function safeNum(v: string | undefined | null): number {
+  const n = parseFloat(String(v ?? '').trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Days between a date string and now, rounded down. */
+function daysSince(dateStr: string | undefined): number {
+  if (!dateStr) return 0;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 0;
+  return Math.floor((Date.now() - d.getTime()) / 86_400_000);
+}
+
 import { getAuthenticatedUser } from '@/lib/auth-server';
-import { fetchShootsFromSheet } from '@/lib/google/sheets';
 
 export async function GET() {
   try {
@@ -44,16 +78,19 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const [allLeads, allPayments, allEditing, allShoots] = await Promise.all([
+    const [allLeads, allPayments, allEditing, allShoots, allEditingTasks] = await Promise.all([
       fetchClientsFromSheet(),
       fetchPaymentsFromSheet(),
       fetchEditingFromSheet(),
       fetchShootsFromSheet(),
+      fetchEditingTasksFromSheet(),
     ]);
 
     let leads = allLeads;
     let payments = allPayments;
     let editingProjects = allEditing;
+    let shoots = allShoots;
+    let editingTasks = allEditingTasks;
 
     if (user.role === 'sales') {
       leads = allLeads.filter(
@@ -71,6 +108,9 @@ export async function GET() {
           edit.editorEmail.trim().toLowerCase() === user.email.trim().toLowerCase() ||
           edit.editorName.trim().toLowerCase() === user.name.trim().toLowerCase()
       );
+      editingTasks = allEditingTasks.filter(
+        (t) => t.assigned_to_email.trim().toLowerCase() === user.email.trim().toLowerCase()
+      );
       const allowedLeadIds = new Set(editingProjects.map((e) => e.leadId));
       leads = allLeads.filter((l) => l.leadId && allowedLeadIds.has(l.leadId));
       payments = allPayments.filter((p) => p.leadId && allowedLeadIds.has(p.leadId));
@@ -80,10 +120,13 @@ export async function GET() {
           shoot.shootMemberEmail.trim().toLowerCase() === user.email.trim().toLowerCase() ||
           shoot.shootMemberName.trim().toLowerCase() === user.name.trim().toLowerCase()
       );
+      shoots = userShoots;
       const allowedLeadIds = new Set(userShoots.map((s) => s.leadId));
       leads = allLeads.filter((l) => l.leadId && allowedLeadIds.has(l.leadId));
       payments = allPayments.filter((p) => p.leadId && allowedLeadIds.has(p.leadId));
       editingProjects = allEditing.filter((e) => e.leadId && allowedLeadIds.has(e.leadId));
+      // Shoot role doesn't need editingTasks
+      editingTasks = [];
     }
 
     const validPayments = payments.filter((p) => p.paymentId && p.paymentId.trim() !== '');
@@ -222,7 +265,7 @@ export async function GET() {
       converted: convertedCountByMonth[m],
     }));
 
-    // Service distribution
+    // Service distribution (revenue-weighted, existing chart)
     const serviceCounts: Record<string, number> = {};
     for (const lead of leads) {
       const norm = normalizeService(lead.servicePitched);
@@ -260,7 +303,7 @@ export async function GET() {
       { name: 'Closed', value: statusCounts['Closed'], color: '#6E7681' },
     ];
 
-    // Editors performance
+    // Editors performance (from Editing sheet)
     const editorsMap: Record<string, {
       id: string;
       name: string;
@@ -324,6 +367,190 @@ export async function GET() {
     const totalConverted = leads.filter((l) => l.proposalAccepted).length;
     const conversionRate = totalLeads > 0 ? (totalConverted / totalLeads) * 100 : 0;
 
+    // -------------------------------------------------------------------------
+    // NEW METRICS
+    // -------------------------------------------------------------------------
+
+    const todayIST = getTodayIST();
+    const { year: istYear, month: istMonth } = getThisMonthIST();
+
+    // --- salesMetrics ---
+    const convertedLeads = leads.filter((l) => l.proposalAccepted);
+
+    const newClientsAdded = convertedLeads.filter((l) => isInMonth(l.date, istYear, istMonth)).length;
+
+    const totalSalesValue = convertedLeads.reduce((sum, l) => sum + safeNum(l.cost), 0);
+
+    const totalCollectionValue = validPayments.reduce((sum, p) => {
+      const statusLower = (p.paymentStatus || '').trim().toLowerCase();
+      const isVerified = ['payment verified', 'payment confirmed', 'confirmed'].includes(statusLower);
+      return sum + (isVerified ? safeNum(p.amount) : 0);
+    }, 0);
+
+    const totalPendingAmount = convertedLeads.reduce((sum, l) => {
+      const rem = safeNum(l.remainingAmount);
+      return sum + (rem > 0 ? rem : 0);
+    }, 0);
+
+    const serviceClientCounts: Record<string, number> = {};
+    for (const lead of convertedLeads) {
+      const norm = normalizeService(lead.servicePitched);
+      serviceClientCounts[norm] = (serviceClientCounts[norm] || 0) + 1;
+    }
+    const serviceWiseClients = Object.entries(serviceClientCounts).map(([name, count]) => ({
+      name,
+      count,
+      color: SERVICE_COLORS[name] || '#8B949E',
+    }));
+
+    const salesMetrics = {
+      newClientsAdded,
+      totalSalesValue,
+      totalCollectionValue,
+      totalPendingAmount,
+      serviceWiseClients,
+    };
+
+    // --- shootMetrics ---
+    const shootsToday = shoots.filter((s) => s.shootDate === todayIST).length;
+    const shootsFuture = shoots.filter((s) => s.shootDate > todayIST).length;
+    const shootsPast = shoots.filter((s) => s.shootDate < todayIST && s.shootDate !== '').length;
+
+    const thisMonthShoots = shoots.filter((s) => isInMonth(s.shootDate, istYear, istMonth));
+
+    let shootExtraHoursSummary = 0;
+    for (const s of thisMonthShoots) {
+      const hrs = safeNum(s.extraDurationHours);
+      if (hrs > 0) shootExtraHoursSummary += hrs;
+    }
+
+    const shootExtraEquipment = thisMonthShoots.filter(
+      (s) => safeNum(s.extraCamera) > 0 || safeNum(s.extraTeleprompter) > 0
+    ).length;
+
+    const recordTimes = thisMonthShoots.map((s) => safeNum(s.recordTime)).filter((v) => v > 0);
+    const studioTimes = thisMonthShoots.map((s) => safeNum(s.studioTime)).filter((v) => v > 0);
+    const avgRecordTime = recordTimes.length > 0 ? recordTimes.reduce((a, b) => a + b, 0) / recordTimes.length : 0;
+    const avgStudioTime = studioTimes.length > 0 ? studioTimes.reduce((a, b) => a + b, 0) / studioTimes.length : 0;
+
+    const shootMetrics = {
+      shootsToday,
+      shootsFuture,
+      shootsPast,
+      shootExtraHoursSummary: Math.round(shootExtraHoursSummary * 100) / 100,
+      shootExtraEquipment,
+      avgRecordTime: Math.round(avgRecordTime * 100) / 100,
+      avgStudioTime: Math.round(avgStudioTime * 100) / 100,
+    };
+
+    // --- editingMetrics ---
+    const now = Date.now();
+    const TWO_DAYS_MS = 2 * 86_400_000;
+
+    let editTotal = 0;
+    let editNotStarted = 0;
+    let editInProgress = 0;
+    let editSharedForReview = 0;
+    let editDelivered = 0;
+    let editOutOfTAT = 0;
+    const agingList: { task_id: string; client_name: string; task_label: string; assigned_to_name: string; days: number }[] = [];
+
+    const editorStatsMap: Record<string, {
+      editor_name: string;
+      editor_email: string;
+      assigned: number;
+      inProgress: number;
+      sharedForReview: number;
+      delivered: number;
+      outOfTAT: number;
+    }> = {};
+
+    for (const task of editingTasks) {
+      editTotal++;
+      const statusRaw = (task.status || '').trim();
+      const statusLower = statusRaw.toLowerCase();
+      const isDelivered = task.final_delivered === 'true' || task.final_delivered === true as unknown as string || statusLower === 'delivered';
+      const deadlineMs = task.deadline_at ? new Date(task.deadline_at).getTime() : 0;
+      const isOutOfTAT = !isDelivered && deadlineMs > 0 && now > deadlineMs;
+      const assignedAtMs = task.deadline_at ? new Date(task.deadline_at).getTime() : 0; // use assigned_at below
+      const assignedAtActual = (task as any).assigned_at;
+      const assignedAtParsed = assignedAtActual ? new Date(assignedAtActual).getTime() : 0;
+
+      if (isDelivered) {
+        editDelivered++;
+      } else if (statusLower === 'in progress') {
+        editInProgress++;
+      } else if (statusLower === 'shared for review' || statusLower === 'pending review') {
+        editSharedForReview++;
+      } else if (statusLower === 'assigned') {
+        // Only "not started" if assigned more than 2 days ago
+        const ageMs = assignedAtParsed > 0 ? now - assignedAtParsed : 0;
+        if (ageMs > TWO_DAYS_MS) {
+          editNotStarted++;
+        }
+      }
+      // out of TAT counted separately (can overlap statuses)
+      if (isOutOfTAT) editOutOfTAT++;
+
+      // Aging list for non-delivered tasks
+      if (!isDelivered) {
+        const days = assignedAtParsed > 0 ? Math.floor((now - assignedAtParsed) / 86_400_000) : 0;
+        agingList.push({
+          task_id: task.task_id,
+          client_name: task.client_name,
+          task_label: task.task_label,
+          assigned_to_name: task.assigned_to_name,
+          days,
+        });
+      }
+
+      // Per-editor stats
+      const editorKey = task.assigned_to_email || task.assigned_to_name || 'unknown';
+      if (!editorStatsMap[editorKey]) {
+        editorStatsMap[editorKey] = {
+          editor_name: task.assigned_to_name || 'Unknown',
+          editor_email: task.assigned_to_email || '',
+          assigned: 0,
+          inProgress: 0,
+          sharedForReview: 0,
+          delivered: 0,
+          outOfTAT: 0,
+        };
+      }
+      const es = editorStatsMap[editorKey];
+      if (isDelivered) {
+        es.delivered++;
+      } else if (statusLower === 'in progress') {
+        es.inProgress++;
+      } else if (statusLower === 'shared for review' || statusLower === 'pending review') {
+        es.sharedForReview++;
+      } else if (statusLower === 'assigned') {
+        es.assigned++;
+      }
+      if (isOutOfTAT) es.outOfTAT++;
+    }
+
+    agingList.sort((a, b) => b.days - a.days);
+    const aging = agingList.slice(0, 50);
+
+    const tasksPerEditor = Object.values(editorStatsMap);
+    const loadCapacity = tasksPerEditor.map((e) => ({
+      editor_name: e.editor_name,
+      activeCount: e.assigned + e.inProgress,
+    }));
+
+    const editingMetrics = {
+      total: editTotal,
+      notStarted: editNotStarted,
+      inProgress: editInProgress,
+      sharedForReview: editSharedForReview,
+      delivered: editDelivered,
+      outOfTAT: editOutOfTAT,
+      aging,
+      tasksPerEditor,
+      loadCapacity,
+    };
+
     return NextResponse.json({
       success: true,
       invoices,
@@ -337,6 +564,9 @@ export async function GET() {
         STATUS_DISTRIBUTION,
         SALES_TREND,
         EDITORS,
+        salesMetrics,
+        shootMetrics,
+        editingMetrics,
       },
     });
   } catch (error) {
