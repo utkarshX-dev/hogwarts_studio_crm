@@ -41,7 +41,7 @@ export const BACKEND_USERS: BackendUser[] = [
   {
     id: 'u3',
     name: 'Shubham Singh Rana',
-    email: 'shubham@hogwartsstudios.com',
+    email: 'mamgai75@gmail.com',
     phone: '9870875693',
     designation: 'Executive - Creative Team',
     role: 'editor',
@@ -53,7 +53,7 @@ export const BACKEND_USERS: BackendUser[] = [
   {
     id: 'u4',
     name: 'Deepak Sharma',
-    email: 'deepak@hogwartsstudios.com',
+    email: 'mamgai75@gmail.com',
     phone: '7404409453',
     designation: 'Manager - Creative Team',
     role: 'editor',

@@ -12,6 +12,7 @@ const CLIENTS_SHEET = 'Clients';
 const PAYMENTS_SHEET = 'Payments';
 const SHOOT_SHEET = 'Shoot';
 const EDITING_SHEET = 'Editing';
+const EDITING_TASKS_SHEET = 'EditingTasks';
 const REVISIONS_SHEET = 'Revisions';
 // Clients has 31 columns (A:AE). Keeping both ranges aligned with the whole
 // table is essential: Google Sheets uses the supplied range to find the table
@@ -22,6 +23,7 @@ const PAYMENTS_READ_RANGE = `${PAYMENTS_SHEET}!A2:Q`;
 const PAYMENTS_WITH_HEADERS_READ_RANGE = `${PAYMENTS_SHEET}!A1:Q`;
 const SHOOT_READ_RANGE = `${SHOOT_SHEET}!A2:AB`;
 const EDITING_READ_RANGE = `${EDITING_SHEET}!A2:AH`;
+const EDITING_TASKS_READ_RANGE = `${EDITING_TASKS_SHEET}!A1:Z`;
 const REVISIONS_READ_RANGE = `${REVISIONS_SHEET}!A2:J`;
 
 export interface RevisionEntry {
@@ -332,6 +334,28 @@ function buildLeadRow(input: CreateLeadInput, leadId: string): string[] {
   ];
 }
 
+export interface EditingTask {
+  task_id: string;
+  edit_id: string;
+  shoot_id: string;
+  lead_id: string;
+  client_name: string;
+  service_type: string;
+  task_type: string;
+  task_index: string;
+  task_label: string;
+  data_link: string;
+  assigned_to_name: string;
+  assigned_to_email: string;
+  status: string;
+  draft_link: string;
+  manager_comment: string;
+  revision_count: string;
+  deadline_at: string;
+  final_delivered: string;
+  allocation_history: string;
+}
+
 function normalizeHeader(value: string): string {
   return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
@@ -491,6 +515,60 @@ export async function fetchEditingFromSheet(): Promise<EditingProject[]> {
       .map((row) => rowToEditingProject(row as string[]))
       .filter((project): project is EditingProject => project !== null);
   });
+}
+
+function taskFromRow(row: string[], headers: string[]): EditingTask | null {
+  const values = Object.fromEntries(headers.map((header, index) => [header.trim().toLowerCase(), row[index]?.trim() ?? '']));
+  const taskId = values.task_id;
+  if (!taskId) return null;
+
+  return {
+    task_id: taskId,
+    edit_id: values.edit_id ?? '', shoot_id: values.shoot_id ?? '', lead_id: values.lead_id ?? '',
+    client_name: values.client_name ?? '', service_type: values.service_type ?? '',
+    task_type: values.task_type ?? '', task_index: values.task_index ?? '', task_label: values.task_label ?? '',
+    data_link: values.data_link ?? '', assigned_to_name: values.assigned_to_name ?? '',
+    assigned_to_email: values.assigned_to_email ?? '', status: values.status ?? 'Assigned',
+    draft_link: values.draft_link ?? '', manager_comment: values.manager_comment ?? '',
+    revision_count: values.revision_count ?? '', deadline_at: values.deadline_at ?? '',
+    final_delivered: values.final_delivered ?? '', allocation_history: values.allocation_history ?? '',
+  };
+}
+
+export async function fetchEditingTasksFromSheet(email?: string): Promise<EditingTask[]> {
+  return getCachedData(`editing-tasks:${email?.toLowerCase() ?? 'all'}`, async () => {
+    const sheets = getSheetsClient();
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: EDITING_TASKS_READ_RANGE });
+    const [headers = [], ...rows] = response.data.values ?? [];
+    const tasks = rows.map((row) => taskFromRow(row as string[], headers as string[])).filter((task): task is EditingTask => task !== null);
+    const normalizedEmail = email?.trim().toLowerCase();
+    return normalizedEmail ? tasks.filter((task) => task.assigned_to_email.toLowerCase() === normalizedEmail) : tasks;
+  });
+}
+
+export async function updateEditingTaskInSheet(taskId: string, updates: { status: string; draft_link?: string }): Promise<EditingTask | null> {
+  const sheets = getSheetsClient();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: EDITING_TASKS_READ_RANGE });
+  const [headers = [], ...rows] = response.data.values ?? [];
+  const normalizedHeaders = (headers as string[]).map((header) => header.trim().toLowerCase());
+  const taskIdColumn = normalizedHeaders.indexOf('task_id');
+  const statusColumn = normalizedHeaders.indexOf('status');
+  const draftLinkColumn = normalizedHeaders.indexOf('draft_link');
+  const rowIndex = rows.findIndex((row) => (row as string[])[taskIdColumn]?.trim() === taskId);
+  if (taskIdColumn < 0 || statusColumn < 0 || rowIndex < 0) return null;
+
+  const row = [...(rows[rowIndex] as string[])];
+  while (row.length < normalizedHeaders.length) row.push('');
+  row[statusColumn] = updates.status;
+  if (updates.draft_link !== undefined && draftLinkColumn >= 0) row[draftLinkColumn] = updates.draft_link;
+  const rowNumber = rowIndex + 2;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${EDITING_TASKS_SHEET}!A${rowNumber}:${String.fromCharCode(64 + normalizedHeaders.length)}${rowNumber}`,
+    valueInputOption: 'USER_ENTERED', requestBody: { values: [row] },
+  });
+  clearSheetsCache();
+  return taskFromRow(row, headers as string[]);
 }
 
 export async function fetchRevisionsFromSheet(): Promise<RevisionEntry[]> {
@@ -762,7 +840,14 @@ export async function fetchBackendUsersFromSheet(): Promise<BackendUser[]> {
             password,
           };
         })
-        .filter((u) => u.id);
+        .filter((u) => u.id)
+        // Keep the configured editor contact address consistent even when an
+        // older Users sheet still contains the previous studio aliases.
+        .map((u) =>
+          u.role === 'editor' && ['Shubham Singh Rana', 'Deepak Sharma'].includes(u.name)
+            ? { ...u, email: 'mamgai75@gmail.com' }
+            : u
+        );
     } catch (err) {
       console.error('Failed to fetch backend users from Google Sheets:', err);
       return BACKEND_USERS;

@@ -51,6 +51,7 @@ export async function POST(request: Request) {
       short_format_video: value(body, 'short_format_video', '0'),
       short_format_duration: value(body, 'short_format_duration'),
       additional_product: value(body, 'additional_product'),
+      additional_product_quantity: value(body, 'additional_product_quantity', '0'),
       manager_comment: value(body, 'manager_comment'),
     };
 
